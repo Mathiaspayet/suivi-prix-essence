@@ -87,6 +87,33 @@ Le programme mesure les deux méthodes à chaque entraînement et conserve celle
 qui a réellement gagné, carburant par carburant et horizon par horizon. La page
 d'accueil indique toujours laquelle a été employée.
 
+### Pistes explorées et écartées
+
+Consignées ici pour éviter de refaire le trajet. Toutes ont été mesurées, pas
+supposées.
+
+| Piste | Résultat |
+|-------|----------|
+| Prévoir le prix exact | 12 à 44 % **moins bien** que « le même prix qu'aujourd'hui » |
+| Arbres de gradient | derniers des trois familles testées |
+| Indice de peur du pétrole (OVX) | corrélation 0,03 avec l'avenir ; dégrade le modèle |
+| Marge de raffinage | n'ajoute rien aux cotations de gros dont elle dérive |
+| Indice base 100 pour le graphique | amplitudes trop inégales, les courbes ne se superposent pas |
+| **Entraîner sur les 13 régions** | **neutre à 7 jours, −7 points à 14 jours** |
+| Dispersion entre régions comme signal | neutre (±0,3 point) |
+
+La piste régionale méritait d'être tentée : treize séries de 2 800 jours, c'est
+soixante-treize fois plus de lignes d'entraînement. Elle échoue pour une raison
+qui saute aux yeux une fois mesurée — les régions corrèlent à **0,99** avec la
+moyenne nationale et bougent le **même jour** qu'elle. Ce ne sont pas treize
+informations, mais treize copies. Le modèle s'y dilue en apprenant une « région
+moyenne » qui ne correspond à aucune.
+
+Quant aux niveaux de prix, ils diffèrent bien d'une région à l'autre, mais de
+5 centimes entre les extrêmes — là où les stations d'un même bassin de vie
+s'étalent couramment sur 25 centimes. Le comparateur de stations répond déjà à
+cette question, et bien mieux.
+
 ---
 
 ## Installation sur un NAS Synology
@@ -161,6 +188,10 @@ pip install -r requirements.txt
 
 python scripts/initialiser.py      # une seule fois : constitue l'historique
 python scripts/entrainer.py        # entraîne les modèles
+
+# Par la suite :
+python scripts/entrainer.py --reajuster   # rapide, quotidien
+python scripts/entrainer.py --valider     # complet, une fois par mois
 uvicorn carburants.web.app:application --host 0.0.0.0 --port 8100
 ```
 

@@ -90,6 +90,13 @@ TAUX_TVA = 1.20
 FENETRE_ECART_JOURS = 90
 
 # --- Modèle de prévision --------------------------------------------------
+# Espacement des validations complètes. Départager les méthodes coûte près de
+# neuf dixièmes du temps de calcul — six plis fois deux candidats, soit douze
+# entraînements par carburant et par horizon, contre un seul pour le
+# réajustement. Or ce choix est stable sur des mois : rien ne justifie de le
+# refaire chaque nuit sur le processeur d'un NAS. Entre deux validations, la
+# méthode retenue est simplement réajustée aux données du jour (205 s contre 20).
+JOURS_ENTRE_VALIDATIONS = 30
 # À combien de jours d'avance on cherche à prévoir.
 HORIZONS_JOURS = [7, 14, 30]
 # Fiabilité d'une moyenne quotidienne. Deux garde-fous complémentaires :

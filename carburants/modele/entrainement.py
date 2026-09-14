@@ -185,15 +185,45 @@ def choisir_methode(mesures):
     return max(concurrents, key=concurrents.get)
 
 
-def entrainer(carburant, horizon, journal=print):
-    """Valide, retient la meilleure méthode, puis enregistre le nécessaire.
+def _validation_perimee(paquet):
+    """Dit s'il est temps de refaire concourir les méthodes."""
+    if paquet is None or "valide_le" not in paquet:
+        return True
+    age = (dt.date.today() - dt.date.fromisoformat(paquet["valide_le"])).days
+    return age >= config.JOURS_ENTRE_VALIDATIONS
 
-    L'ordre compte : on juge d'abord sur des données inconnues, et on ne
-    réentraîne sur la totalité qu'ensuite. L'inverse — mesurer la performance
-    après avoir tout appris — ne mesurerait que la mémoire du modèle.
+
+def entrainer(carburant, horizon, revalider=None, journal=print):
+    """Réajuste le modèle aux données du jour, en revalidant si nécessaire.
+
+    Deux opérations de coût très différent sont distinguées ici.
+
+    La **validation** fait concourir les méthodes sur des périodes inconnues
+    pour désigner la meilleure. Elle demande douze entraînements par carburant
+    et par horizon, soit près de neuf dixièmes du temps total. Son verdict ne
+    change pas d'un jour à l'autre.
+
+    Le **réajustement** réentraîne la méthode déjà retenue sur l'historique
+    complet, à jour du dernier relevé. Un seul entraînement, et c'est ce qui
+    permet au modèle de rester au contact du marché.
+
+    D'où la règle : réajustement à chaque collecte, validation une fois par
+    mois. L'ordre est toujours respecté — on juge sur des données inconnues
+    avant de réentraîner sur la totalité, faute de quoi on ne mesurerait que
+    la mémoire du modèle.
     """
-    mesures = valider(carburant, horizon)
-    methode = choisir_methode(mesures)
+    precedent = charger(carburant, horizon)
+    if revalider is None:
+        revalider = _validation_perimee(precedent)
+
+    if revalider:
+        mesures = valider(carburant, horizon)
+        methode = choisir_methode(mesures)
+        valide_le = dt.date.today().isoformat()
+    else:
+        mesures = dict(precedent["mesures"])
+        methode = precedent["methode"]
+        valide_le = precedent["valide_le"]
     mesures["methode"] = methode
     mesures["justesse_retenue"] = (
         mesures["justesse_momentum"] if methode == "momentum"
@@ -224,19 +254,26 @@ def entrainer(carburant, horizon, journal=print):
                 "mesures": mesures,
                 "methode": methode,
                 "entraine_le": dt.date.today().isoformat(),
+                "valide_le": valide_le,
             },
             fichier,
         )
 
-    detail = " / ".join(
-        f"{nom} {mesures[f'justesse_{nom}']:.1f}" for nom in fabriquer_candidats()
-    )
-    journal(
-        f"  {carburant:7} {horizon:2}j : {methode:10} retenu → "
-        f"{mesures['justesse_retenue']:.1f}% de bon sens "
-        f"({detail} / tendance {mesures['justesse_momentum']:.1f} "
-        f"/ biais {mesures['justesse_toujours_hausse']:.1f})"
-    )
+    if revalider:
+        detail = " / ".join(
+            f"{nom} {mesures[f'justesse_{nom}']:.1f}" for nom in fabriquer_candidats()
+        )
+        journal(
+            f"  {carburant:7} {horizon:2}j : {methode:10} retenu → "
+            f"{mesures['justesse_retenue']:.1f}% de bon sens "
+            f"({detail} / tendance {mesures['justesse_momentum']:.1f} "
+            f"/ biais {mesures['justesse_toujours_hausse']:.1f})"
+        )
+    else:
+        journal(
+            f"  {carburant:7} {horizon:2}j : {methode} réajusté "
+            f"({mesures['justesse_retenue']:.1f}%, validé le {valide_le})"
+        )
     return mesures
 
 
@@ -249,14 +286,19 @@ def charger(carburant, horizon):
         return pickle.load(fichier)
 
 
-def entrainer_tout(carburants=None, journal=print):
-    """Entraîne un modèle par carburant et par horizon."""
+def entrainer_tout(carburants=None, revalider=None, journal=print):
+    """Traite chaque carburant et chaque horizon.
+
+    « revalider » vaut None par défaut, ce qui laisse chaque modèle décider
+    selon l'ancienneté de sa dernière validation. True force le concours
+    complet, False s'en tient au réajustement.
+    """
     carburants = carburants or config.CARBURANTS
     resultats = []
     for carburant in carburants:
         for horizon in config.HORIZONS_JOURS:
             try:
-                resultats.append(entrainer(carburant, horizon, journal))
+                resultats.append(entrainer(carburant, horizon, revalider, journal))
             except ValueError as erreur:
                 journal(f"  {carburant:7} {horizon:2}j : ignoré ({erreur})")
     return resultats
