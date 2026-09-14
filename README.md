@@ -44,18 +44,34 @@ davantage que le fait d'en employer.
 Justesse mesurée sur des périodes que le modèle n'avait jamais vues
 (2019-2026, validation glissante) :
 
-| Carburant | à 7 jours | à 14 jours | à 30 jours | Méthode retenue |
-|-----------|-----------|------------|------------|-----------------|
-| Gazole    | 79 %      | 71 %       | 66 %       | forêt aléatoire |
-| SP95      | **86 %**  | 77 %       | 65 %       | forêt aléatoire |
-| SP98      | 82 %      | 76 %       | 65 %       | forêt aléatoire |
-| E10       | 81 %      | 73 %       | 62 %       | forêt aléatoire |
-| E85       | 76 %      | 82 %       | 69 %       | tendance |
-| GPLc      | 80 %      | 78 %       | 67 %       | forêt / tendance |
+Justesse **réellement constatée**, sur les prévisions déjà arrivées à échéance
+(février 2025 → aujourd'hui, plus de 6 500 prévisions jugées) :
+
+| Carburant | à 7 jours | à 14 jours | à 30 jours |
+|-----------|-----------|------------|------------|
+| Gazole    | 76 %      | 62 %       | 57 % ✗ |
+| SP95      | **84 %**  | 67 %       | 57 % ✗ |
+| SP98      | 81 %      | 65 %       | 55 % ✗ |
+| E10       | 77 %      | 63 %       | 49 % ✗ |
+| E85       | 88 %      | 83 %       | 65 % |
+| GPLc      | —         | 85 %       | 81 % |
+
+Les cases marquées ✗ tombent sous les 60 % : **l'application refuse d'y donner
+un avis** et l'affiche comme « non communiqué ». Annoncer une tendance qu'on
+sait fausse une fois sur deux rendrait un service douteux.
+
+**Ces chiffres sont plus bas que ceux de la validation**, et l'écart mérite
+d'être expliqué. La validation découpe l'historique en six périodes successives
+et moyenne les résultats — mais certaines périodes anciennes, comme la flambée
+de 2022, étaient bien plus faciles à prévoir que le marché actuel. Sur le gazole
+à trente jours, la moyenne des six annonce 66 % là où la dernière période seule
+en donne 58. Ce qui intéresse celui qui consulte la page n'est pas la moyenne
+des six dernières années, mais si l'outil voit juste **en ce moment**. C'est
+donc le palmarès réel qui s'affiche dès qu'il compte plus de cent prévisions
+jugées.
 
 Autrement dit : **à sept jours, l'outil se trompe environ une fois sur cinq.**
-À trente jours, une fois sur trois. Et il ne verra jamais venir une crise
-géopolitique ni un changement de fiscalité.
+À quatorze, une fois sur trois. À trente, il se tait.
 
 ### Ce n'est pas le baril qu'il faut regarder
 

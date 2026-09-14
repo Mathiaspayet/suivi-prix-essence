@@ -199,6 +199,13 @@ footer a { color: inherit; }
     <p class="vide" id="stations-vide">Indiquez une commune pour comparer les stations alentour.</p>
   </section>
 
+  <!-- Palmarès -->
+  <section class="carte">
+    <h2>Le modèle a-t-il vu juste ?</h2>
+    <p class="encart" id="resume-palmares">Chargement…</p>
+    <div class="defilement"><table id="tableau-palmares"><tbody></tbody></table></div>
+  </section>
+
   <!-- Favoris -->
   <section class="carte">
     <h2>Mes stations suivies</h2>
@@ -271,7 +278,10 @@ function construirePlages() {
 }
 
 /* ---------- Prévisions ---------- */
-const COULEUR_CONSEIL = { faire_le_plein: "--critique", attendre: "--bien", indecis: "--alerte" };
+const COULEUR_CONSEIL = {
+  faire_le_plein: "--critique", attendre: "--bien",
+  indecis: "--alerte", peu_fiable: "--encre-3",
+};
 
 async function chargerPrevisions() {
   const reponse = await fetch(`/api/previsions?carburant=${encodeURIComponent(carburantActif)}`);
@@ -294,8 +304,11 @@ async function chargerPrevisions() {
   document.getElementById("verdict").innerHTML =
     `<span class="pastille" style="background:${couleur}"></span>${court.resume}`;
   document.getElementById("verdict-detail").textContent =
-    `Sous 7 jours : ${court.probabilite_hausse.toFixed(0)} % de probabilité de hausse, ` +
-    `soit environ ${centimes(court.variation_probable_cts)} par litre.`;
+    court.conseil === "peu_fiable"
+      ? `À cette échéance, le modèle n'a vu juste que ${court.justesse_pct} % du temps. `
+        + `Trop peu pour vous conseiller quoi que ce soit.`
+      : `Sous 7 jours : ${court.probabilite_hausse.toFixed(0)} % de probabilité de hausse, `
+        + `soit environ ${centimes(court.variation_probable_cts)} par litre.`;
   document.getElementById("prix-actuel").textContent = euros(court.prix_actuel);
 
   valides.forEach((p) => {
@@ -305,14 +318,17 @@ async function chargerPrevisions() {
     tuile.innerHTML = `
       <div class="entete">
         <span class="horizon">${p.horizon} jours</span>
-        <span class="etiquette">${p.justesse_pct.toFixed(0)} % de justesse</span>
+        <span class="etiquette">${p.justesse_pct == null ? "—" : p.justesse_pct.toFixed(0) + " % de justesse"}</span>
       </div>
       <div class="sens"><span class="pastille" style="background:${couleurTuile}"></span>${
         // À 51 % de probabilité, annoncer « hausse probable » serait présenter
         // un tirage à pile ou face comme une prévision. On dit qu'on ne sait pas.
-        p.conseil === "indecis" ? "Trop incertain"
+        p.conseil === "peu_fiable" ? "Non communiqué"
+          : p.conseil === "indecis" ? "Trop incertain"
           : (p.sens === "hausse" ? "Hausse probable" : "Baisse probable")}</div>
-      <div class="fiabilite">${p.conseil === "indecis" ? "Pas d'écart net attendu"
+      <div class="fiabilite">${
+        p.conseil === "peu_fiable" ? "Le modèle se trompe trop souvent ici"
+        : p.conseil === "indecis" ? "Pas d'écart net attendu"
         : centimes(p.variation_probable_cts) + " / L &nbsp;·&nbsp; vers " + euros(p.prix_prevu)}</div>
       <div class="jauge"><span style="width:${p.probabilite_hausse}%;background:${couleurTuile}"></span></div>
       <div class="fiabilite" style="margin-top:6px">${p.probabilite_hausse.toFixed(0)} % de probabilité de hausse</div>`;
@@ -324,10 +340,16 @@ async function chargerPrevisions() {
     ? (methodes[0] === "modele" ? "un modèle statistique entraîné sur 2019-aujourd'hui"
                                 : "la règle de tendance, qui s'est révélée la plus fiable pour ce carburant")
     : "un modèle statistique pour certains horizons, la règle de tendance pour les autres";
+  const surPalmares = valides.filter((p) => p.justesse_source === "palmarès");
   document.getElementById("note-methode").textContent =
-    `Prévision produite par ${nomMethode}. Le pourcentage de justesse est mesuré sur des ` +
-    `périodes que le modèle n'avait jamais vues — il annonce le sens de la variation, ` +
-    `jamais le prix exact.`;
+    `Prévision produite par ${nomMethode}. `
+    + (surPalmares.length
+        ? `Les pourcentages de justesse sont ceux réellement obtenus sur `
+          + `${surPalmares[0].nb_previsions_jugees} prévisions déjà arrivées à échéance, `
+          + `et non une moyenne de laboratoire.`
+        : `Les pourcentages proviennent de la validation, sur des périodes que le `
+          + `modèle n'avait jamais vues.`)
+    + ` L'outil annonce le sens de la variation, jamais le prix exact.`;
   document.getElementById("avertissement").textContent =
     `Cet outil annonce une tendance, pas une certitude : à 7 jours il se trompe environ ` +
     `une fois sur quatre, et davantage à 30 jours. Aucun modèle ne peut anticiper une ` +
@@ -588,6 +610,38 @@ async function chargerFavoris() {
   });
 }
 
+/* ---------- Palmarès ---------- */
+async function chargerPalmares() {
+  const d = await (await fetch(`/api/palmares?carburant=${encodeURIComponent(carburantActif)}`)).json();
+  const resume = document.getElementById("resume-palmares");
+  const corps = document.querySelector("#tableau-palmares tbody");
+  corps.innerHTML = "";
+
+  if (!d.nb_jugees) {
+    resume.textContent = "Aucune prévision n'est encore arrivée à échéance. "
+      + "Le bilan apparaîtra ici au fil des jours.";
+    return;
+  }
+  resume.textContent = `Sur ${d.nb_jugees.toLocaleString("fr-FR")} prévisions arrivées à `
+    + `échéance depuis le ${dateLongue(d.depuis)}, le sens annoncé s'est vérifié `
+    + `${d.taux_reussite.toFixed(1).replace(".", ",")} % du temps. `
+    + `Une prévision n'est comptée que si le prix a bougé d'au moins un demi-centime.`;
+
+  corps.innerHTML = `<tr><th>Échéance</th><th class="nombre">Prévisions jugées</th>
+                     <th class="nombre">Vues juste</th><th></th></tr>`;
+  d.detail.forEach((l) => {
+    const ligne = document.createElement("tr");
+    // Sous 60 %, l'outil ne se prononce plus : la ligne le dit aussi.
+    const couleur = l.taux >= 70 ? "--bien" : (l.taux >= 60 ? "--alerte" : "--critique");
+    ligne.innerHTML = `
+      <td>${l.horizon} jours</td>
+      <td class="nombre">${l.nb}</td>
+      <td class="nombre" style="color:${encre(couleur)}">${l.taux.toFixed(1).replace(".", ",")} %</td>
+      <td>${l.taux < 60 ? '<span class="etiquette">non communiqué</span>' : ""}</td>`;
+    corps.appendChild(ligne);
+  });
+}
+
 /* ---------- État des données ---------- */
 async function chargerEtat() {
   const donnees = await (await fetch("/api/etat")).json();
@@ -608,7 +662,7 @@ async function chargerEtat() {
 
 /* ---------- Démarrage ---------- */
 function toutRafraichir() {
-  chargerPrevisions(); chargerGraphique(); chargerStations(); chargerFavoris();
+  chargerPrevisions(); chargerGraphique(); chargerStations(); chargerFavoris(); chargerPalmares();
 }
 let minuterie;
 document.getElementById("commune").addEventListener("input", () => {
@@ -639,7 +693,7 @@ async function appliquerReglages() {
 }
 
 construireOnglets(); construireVues(); construirePlages(); chargerEtat();
-chargerPrevisions(); chargerGraphique(); chargerFavoris();
+chargerPrevisions(); chargerGraphique(); chargerFavoris(); chargerPalmares();
 appliquerReglages();
 </script>
 </body>

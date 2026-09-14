@@ -311,6 +311,16 @@ def entrainer_tout(carburants=None, revalider=None, journal=print):
 # par conseiller à pile ou face.
 SEUIL_RECOMMANDATION = 0.62
 
+# En dessous de cette justesse, l'outil se tait. Annoncer une tendance dont on
+# sait qu'elle se vérifie six fois sur dix rendrait un service douteux : autant
+# dire clairement qu'on ne sait pas.
+FIABILITE_MINIMALE = 60.0
+
+# Nombre de prévisions jugées à partir duquel on se fie au palmarès réel
+# plutôt qu'aux chiffres de la validation. En dessous, l'échantillon est trop
+# maigre pour conclure quoi que ce soit.
+MINIMUM_POUR_PALMARES = 100
+
 
 # Les prévisions ne changent qu'une fois par jour, à la collecte. Les
 # recalculer à chaque affichage ferait relire toute la base et réinterroger
@@ -373,7 +383,24 @@ def prevoir(carburant, horizon):
     amplitude = mesures["amplitude_mediane_cts"] / 100
     sens = 1 if probabilite_hausse >= 0.5 else -1
 
-    if probabilite_hausse >= SEUIL_RECOMMANDATION:
+    # La justesse annoncée à l'utilisateur est celle du palmarès dès qu'il est
+    # assez fourni, et non la moyenne de la validation. Les deux diffèrent : la
+    # seconde moyenne six périodes couvrant plusieurs années, dont d'anciennes
+    # bien plus faciles à prévoir que la période en cours. Ce qui intéresse
+    # celui qui consulte la page, c'est si l'outil voit juste en ce moment.
+    from carburants import base
+
+    bilan = base.palmares(carburant, horizon)
+    if bilan["nb_jugees"] >= MINIMUM_POUR_PALMARES:
+        justesse, source = bilan["taux_reussite"], "palmarès"
+    else:
+        justesse, source = mesures["justesse_retenue"], "validation"
+
+    if justesse is not None and justesse < FIABILITE_MINIMALE:
+        # Trop peu fiable pour se prononcer, quelle que soit la probabilité
+        # calculée : mieux vaut l'avouer que de laisser croire à une prévision.
+        conseil, resume = "peu_fiable", "Trop imprévisible à cette échéance"
+    elif probabilite_hausse >= SEUIL_RECOMMANDATION:
         conseil, resume = "faire_le_plein", "Faites le plein maintenant"
     elif probabilite_hausse <= 1 - SEUIL_RECOMMANDATION:
         conseil, resume = "attendre", "Vous pouvez attendre"
@@ -393,7 +420,10 @@ def prevoir(carburant, horizon):
         "conseil": conseil,
         "resume": resume,
         "methode": paquet["methode"],
-        "justesse_pct": round(mesures["justesse_retenue"], 1),
+        "justesse_pct": round(justesse, 1) if justesse is not None else None,
+        "justesse_source": source,
+        "justesse_validation_pct": round(mesures["justesse_retenue"], 1),
+        "nb_previsions_jugees": bilan["nb_jugees"],
         "entraine_le": paquet["entraine_le"],
     }
     # On écarte les entrées devenues obsolètes — celles calculées sur des

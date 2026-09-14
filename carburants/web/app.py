@@ -249,6 +249,16 @@ def api_reglages():
     }
 
 
+@application.get("/api/palmares")
+def api_palmares(carburant: str = Query(None)):
+    """Bilan des prévisions rendues, confrontées à ce qui s'est produit.
+
+    C'est le chiffre qui compte : non pas ce que le modèle promet, mais ce
+    qu'il a effectivement obtenu sur des échéances déjà passées.
+    """
+    return base.palmares(carburant)
+
+
 @application.get("/api/etat")
 def api_etat():
     """État des données : sert à signaler une collecte en panne.

@@ -76,6 +76,31 @@ def mettre_a_jour(journal=print):
         incidents.append("entraînement")
         journal(f"  entraînement : échec ({erreur})")
 
+    # Consignation des prévisions du jour, puis jugement de celles qui
+    # arrivent à échéance. C'est ce qui permet à l'application d'afficher son
+    # propre bilan plutôt que ses seuls chiffres de laboratoire.
+    try:
+        from carburants.modele import entrainement
+
+        rendues = []
+        for carburant in config.CARBURANTS:
+            for horizon in config.HORIZONS_JOURS:
+                try:
+                    p = entrainement.prevoir(carburant, horizon)
+                except ValueError:
+                    continue
+                rendues.append((
+                    p["date_calcul"], p["carburant"], p["horizon"], p["date_cible"],
+                    p["prix_actuel"], p["prix_prevu"], p["probabilite_hausse"],
+                    p["sens"], p["methode"], "directe",
+                ))
+        base.enregistrer_previsions(rendues)
+        journal(f"  prévisions : {len(rendues)} consignées")
+        base.evaluer_previsions(journal)
+    except Exception as erreur:
+        incidents.append("journal des prévisions")
+        journal(f"  journal des prévisions : échec ({erreur})")
+
     try:
         alertes.envoyer(alertes.verifier(), journal)
     except Exception as erreur:
