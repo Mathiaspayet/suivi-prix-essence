@@ -29,8 +29,13 @@ services:
       # Commune et rayon proposés à l'ouverture de la page.
       COMMUNE_PAR_DEFAUT: Mimizan
       RAYON_PAR_DEFAUT_KM: "30"
+      # Mot de passe de la page de configuration. Facultatif sur un réseau
+      # domestique ; indispensable si le NAS publie l'application au-delà.
+      # MOT_DE_PASSE_ADMIN: choisissez-un-mot-de-passe
+      #
       # --- Alertes par courriel (facultatif) ---
-      # Retirez le « # » des six lignes suivantes et complétez-les.
+      # Plus simple : le bouton « Réglages » de la page permet de tout saisir
+      # sans redéployer. Ces lignes restent utiles comme configuration initiale.
       # Avec Gmail, il faut un mot de passe d'application, créé dans les
       # réglages de sécurité du compte Google : le mot de passe habituel
       # est refusé par les programmes.

@@ -164,6 +164,31 @@ button.lien { background: none; border: none; color: var(--serie-1); cursor: poi
 .bandeau-tendance { font-size: 13px; color: var(--encre-2); margin: 0 0 12px;
   padding: 9px 12px; border-radius: 8px; border: 1px solid var(--bordure); background: var(--plan); }
 
+/* --- Panneau de configuration --- */
+.reglages { display: grid; gap: 22px; }
+.groupe-reglages { border-top: 1px solid var(--grille); padding-top: 16px; }
+.groupe-reglages:first-child { border-top: none; padding-top: 0; }
+.groupe-reglages h3 { font-size: 14px; margin: 0 0 4px; color: var(--encre); }
+.groupe-reglages .aide { font-size: 12.5px; color: var(--encre-3); margin: 0 0 14px; }
+.champs { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px 16px; }
+.champ { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.champ label { font-size: 12px; color: var(--encre-2); font-weight: 600; }
+.champ input, .champ select { width: 100%; }
+.champ .note { font-size: 11.5px; color: var(--encre-3); }
+.bascules { display: grid; gap: 9px; }
+.bascule { display: flex; gap: 9px; align-items: flex-start; font-size: 13.5px; color: var(--encre-2); }
+.bascule input { margin-top: 2px; flex: 0 0 auto; }
+.bascule b { color: var(--encre); font-weight: 600; }
+.actions-reglages { display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  border-top: 1px solid var(--grille); padding-top: 16px; }
+.message-reglages { font-size: 13px; margin: 0; }
+.message-reglages.bon { color: var(--bien); }
+.message-reglages.mauvais { color: var(--critique); }
+button.secondaire { font: inherit; padding: 8px 16px; border-radius: 8px;
+  border: 1px solid var(--bordure); background: var(--surface); color: var(--encre); cursor: pointer; }
+.avertissement { font-size: 12.5px; color: var(--encre-2); background: rgba(250,178,25,0.12);
+  border: 1px solid rgba(250,178,25,0.35); border-radius: 8px; padding: 10px 12px; margin: 0; }
+
 .encart {
   font-size: 13px; color: var(--encre-2); border-left: 3px solid var(--axe);
   padding: 2px 0 2px 14px; margin: 14px 0 0;
@@ -182,8 +207,95 @@ footer a { color: inherit; }
       <h1>Suivi du prix des carburants</h1>
       <p class="sous-titre" id="etat">Chargement…</p>
     </div>
-    <div class="onglets" id="onglets-carburant" role="group" aria-label="Choix du carburant"></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div class="onglets" id="onglets-carburant" role="group" aria-label="Choix du carburant"></div>
+      <button class="secondaire" id="bouton-reglages" aria-expanded="false">Réglages</button>
+    </div>
   </header>
+
+  <!-- Configuration -->
+  <section class="carte" id="panneau-reglages" hidden>
+    <h2>Réglages</h2>
+    <div class="reglages">
+
+      <div class="groupe-reglages">
+        <h3>Messagerie</h3>
+        <p class="aide">Nécessaire pour recevoir les alertes. Sans ces réglages,
+          l'application fonctionne normalement mais reste muette.</p>
+        <div class="champs">
+          <div class="champ"><label for="r-smtp_hote">Serveur SMTP</label>
+            <input id="r-smtp_hote" type="text" placeholder="smtp.gmail.com">
+            <span class="note">Gmail : smtp.gmail.com · Orange : smtp.orange.fr</span></div>
+          <div class="champ"><label for="r-smtp_port">Port</label>
+            <input id="r-smtp_port" type="number" placeholder="587">
+            <span class="note">587 dans la plupart des cas</span></div>
+          <div class="champ"><label for="r-smtp_utilisateur">Identifiant</label>
+            <input id="r-smtp_utilisateur" type="text" placeholder="vous@gmail.com"></div>
+          <div class="champ"><label for="r-smtp_motdepasse">Mot de passe</label>
+            <input id="r-smtp_motdepasse" type="password" autocomplete="new-password">
+            <span class="note" id="note-motdepasse"></span></div>
+          <div class="champ"><label for="r-alerte_destinataire">Destinataire des alertes</label>
+            <input id="r-alerte_destinataire" type="email" placeholder="vous@gmail.com"></div>
+        </div>
+        <p class="avertissement" style="margin-top:14px">
+          Avec Gmail, il faut un <b>mot de passe d'application</b>, créé dans les
+          réglages de sécurité du compte Google. Le mot de passe habituel est
+          systématiquement refusé. Ce mot de passe est conservé en clair dans la
+          base de données, sur votre NAS — le chiffrer avec une clé rangée à côté
+          ne protégerait de rien.
+        </p>
+      </div>
+
+      <div class="groupe-reglages">
+        <h3>Alertes</h3>
+        <p class="aide">Chaque règle se coupe séparément. Ensemble, elles produisent
+          une trentaine de courriels par an, et tout ce qui tombe le même jour part
+          dans un seul message.</p>
+        <div class="bascules">
+          <label class="bascule"><input type="checkbox" id="r-alerte_tendance">
+            <span><b>Basculement de tendance</b> — quand la recommandation passe de
+            « faites le plein » à « vous pouvez attendre », ou l'inverse. ~18 par an.</span></label>
+          <label class="bascule"><input type="checkbox" id="r-alerte_chute">
+            <span><b>Chute brutale</b> — une baisse bien plus forte que d'ordinaire,
+            une occasion qui se referme souvent vite. ~5 par an.</span></label>
+          <label class="bascule"><input type="checkbox" id="r-alerte_dementie">
+            <span><b>Prévision démentie</b> — les faits ont contredit l'annonce,
+            signe d'un fait nouveau sur le marché. ~4 par an.</span></label>
+          <label class="bascule"><input type="checkbox" id="r-alerte_favoris">
+            <span><b>Station suivie sous son seuil</b> — pour les stations auxquelles
+            vous avez fixé un prix déclencheur.</span></label>
+        </div>
+        <div class="champs" style="margin-top:16px">
+          <div class="champ"><label for="r-alerte_carburant">Carburant surveillé</label>
+            <select id="r-alerte_carburant"></select></div>
+          <div class="champ"><label for="r-facteur_mouvement_brutal">Sensibilité aux chutes</label>
+            <input id="r-facteur_mouvement_brutal" type="number" step="0.5" min="1.5">
+            <span class="note">Multiple du mouvement habituel. Plus bas = plus d'alertes.</span></div>
+          <div class="champ"><label for="r-ecart_prevision_dementie">Écart minimal d'une prévision démentie</label>
+            <input id="r-ecart_prevision_dementie" type="number" step="0.01" min="0.005">
+            <span class="note">En euros par litre. 0,03 = trois centimes.</span></div>
+        </div>
+      </div>
+
+      <div class="groupe-reglages">
+        <h3>Affichage</h3>
+        <p class="aide">Ce que la page propose à son ouverture.</p>
+        <div class="champs">
+          <div class="champ"><label for="r-commune_par_defaut">Commune</label>
+            <input id="r-commune_par_defaut" type="text" placeholder="Mimizan"></div>
+          <div class="champ"><label for="r-rayon_par_defaut_km">Rayon (km)</label>
+            <input id="r-rayon_par_defaut_km" type="number" min="1" max="100">
+            <span class="note">30 convient mieux qu'un rayon court en zone rurale.</span></div>
+        </div>
+      </div>
+
+      <div class="actions-reglages">
+        <button class="action" id="enregistrer-reglages">Enregistrer</button>
+        <button class="secondaire" id="essai-mail">Envoyer un message d'essai</button>
+        <p class="message-reglages" id="message-reglages"></p>
+      </div>
+    </div>
+  </section>
 
   <!-- Recommandation -->
   <section class="carte">
@@ -281,6 +393,123 @@ function dateLongue(iso) {
   return `${+j} ${MOIS[+m - 1]} ${a}`;
 }
 const centimes = (v) => (v > 0 ? "+" : "") + v.toFixed(1).replace(".", ",") + " cts";
+
+/* ---------- Configuration ---------- */
+const CHAMPS_TEXTE = ["smtp_hote","smtp_port","smtp_utilisateur","alerte_destinataire",
+  "alerte_carburant","facteur_mouvement_brutal","ecart_prevision_dementie",
+  "commune_par_defaut","rayon_par_defaut_km"];
+const CHAMPS_CASES = ["alerte_tendance","alerte_chute","alerte_dementie","alerte_favoris"];
+
+/* Le mot de passe d'administration, quand il existe, n'est gardé que le temps
+   de l'onglet : sessionStorage s'efface à la fermeture, contrairement à
+   localStorage qui le conserverait indéfiniment sur la machine. */
+const motDePasseAdmin = () => sessionStorage.getItem("admin") || "";
+const enTetesAdmin = () => {
+  const m = motDePasseAdmin();
+  return m ? { "X-Mot-De-Passe": m } : {};
+};
+
+function direReglages(texte, bon) {
+  const zone = document.getElementById("message-reglages");
+  zone.textContent = texte;
+  zone.className = "message-reglages " + (bon ? "bon" : "mauvais");
+}
+
+async function chargerConfiguration(silencieux) {
+  let reponse = await fetch("/api/configuration", { headers: enTetesAdmin() });
+  if (reponse.status === 401) {
+    const saisi = prompt("Mot de passe de configuration :");
+    if (!saisi) return false;
+    sessionStorage.setItem("admin", saisi);
+    reponse = await fetch("/api/configuration", { headers: enTetesAdmin() });
+    if (reponse.status === 401) {
+      sessionStorage.removeItem("admin");
+      direReglages("Mot de passe incorrect.", false);
+      return false;
+    }
+  }
+  const d = await reponse.json();
+
+  const liste = document.getElementById("r-alerte_carburant");
+  liste.innerHTML = d.carburants.map((c) => `<option value="${c}">${c}</option>`).join("");
+  CHAMPS_TEXTE.forEach((c) => {
+    const champ = document.getElementById("r-" + c);
+    if (champ) champ.value = d[c] ?? "";
+  });
+  CHAMPS_CASES.forEach((c) => {
+    const champ = document.getElementById("r-" + c);
+    if (champ) champ.checked = String(d[c]) === "1";
+  });
+  // Le mot de passe n'est jamais renvoyé : on indique seulement s'il existe.
+  document.getElementById("r-smtp_motdepasse").value = "";
+  document.getElementById("note-motdepasse").textContent = d.smtp_motdepasse_renseigne
+    ? "Déjà enregistré. Laissez vide pour le conserver."
+    : "Non renseigné.";
+  // Après un enregistrement, on ne remplace pas la confirmation par
+  // l'avertissement : l'utilisateur doit voir que sa saisie a bien été prise.
+  if (!silencieux) {
+    if (!d.protegee) {
+      direReglages("Cette page n'est protégée par aucun mot de passe. "
+        + "Définissez MOT_DE_PASSE_ADMIN si l'application est accessible hors de "
+        + "votre réseau local.", false);
+    } else {
+      direReglages("", true);
+    }
+  }
+  return true;
+}
+
+async function enregistrerConfiguration() {
+  const valeurs = {};
+  CHAMPS_TEXTE.forEach((c) => {
+    const champ = document.getElementById("r-" + c);
+    if (champ) valeurs[c] = champ.value.trim();
+  });
+  CHAMPS_CASES.forEach((c) => {
+    const champ = document.getElementById("r-" + c);
+    if (champ) valeurs[c] = champ.checked ? "1" : "0";
+  });
+  // Champ laissé vide : on n'envoie rien, le mot de passe en place est conservé.
+  const mdp = document.getElementById("r-smtp_motdepasse").value;
+  if (mdp) valeurs.smtp_motdepasse = mdp;
+
+  const reponse = await fetch("/api/configuration", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...enTetesAdmin() },
+    body: JSON.stringify(valeurs),
+  });
+  if (!reponse.ok) { direReglages("Enregistrement refusé.", false); return; }
+  await chargerConfiguration(true);
+  direReglages("Réglages enregistrés. Ils s'appliquent immédiatement.", true);
+  // Le carburant ou la commune ont pu changer : on rafraîchit la page.
+  appliquerReglages(); toutRafraichir();
+}
+
+async function essayerMessagerie() {
+  direReglages("Envoi en cours…", true);
+  const reponse = await fetch("/api/configuration/essai", {
+    method: "POST", headers: enTetesAdmin(),
+  });
+  if (reponse.status === 401) { direReglages("Mot de passe incorrect.", false); return; }
+  const d = await reponse.json();
+  direReglages(d.message, d.ok);
+}
+
+document.getElementById("bouton-reglages").onclick = async () => {
+  const panneau = document.getElementById("panneau-reglages");
+  const bouton = document.getElementById("bouton-reglages");
+  if (panneau.hidden) {
+    if (!(await chargerConfiguration())) return;
+    panneau.hidden = false;
+    bouton.setAttribute("aria-expanded", "true");
+    panneau.scrollIntoView({ behavior: "smooth", block: "start" });
+  } else {
+    panneau.hidden = true;
+    bouton.setAttribute("aria-expanded", "false");
+  }
+};
+document.getElementById("enregistrer-reglages").onclick = enregistrerConfiguration;
+document.getElementById("essai-mail").onclick = essayerMessagerie;
 
 /* ---------- Sélecteur de carburant ---------- */
 function construireOnglets() {

@@ -27,7 +27,7 @@ import os
 import smtplib
 from email.message import EmailMessage
 
-from carburants import base, config
+from carburants import base, config, reglages
 from carburants.modele import entrainement
 
 
@@ -95,7 +95,8 @@ def _mouvement_brutal(carburant):
     ordinaire = float(variations.tail(365).abs().median())
     if not ordinaire or np.isnan(ordinaire):
         return None
-    seuil = ordinaire * config.FACTEUR_MOUVEMENT_BRUTAL
+    seuil = ordinaire * reglages.lire_decimal(
+        "facteur_mouvement_brutal", config.FACTEUR_MOUVEMENT_BRUTAL)
     derniere = float(variations.iloc[-1])
 
     # Seules les baisses sont signalées ici : une hausse brutale l'est déjà par
@@ -143,7 +144,8 @@ def _prevision_dementie(carburant):
     if ligne is None:
         return None
     variation = ligne["prix_reel"] - ligne["prix_actuel"]
-    if abs(variation) < config.ECART_PREVISION_DEMENTIE:
+    if abs(variation) < reglages.lire_decimal(
+            "ecart_prevision_dementie", config.ECART_PREVISION_DEMENTIE):
         return None
 
     cle = f"dementie:{carburant}"
@@ -178,10 +180,18 @@ def _prevision_dementie(carburant):
 
 def verifier(carburant=None):
     """Dresse la liste des alertes à envoyer aujourd'hui."""
-    carburant = carburant or os.environ.get("ALERTE_CARBURANT", "Gazole")
+    carburant = carburant or reglages.lire("alerte_carburant")
     alertes = []
 
-    for detecteur in (_mouvement_brutal, _prevision_dementie):
+    # Chaque règle se coupe séparément depuis la page de configuration : mieux
+    # vaut en désactiver une que se résigner à ignorer tous les courriels.
+    detecteurs = []
+    if reglages.lire_booleen("alerte_chute"):
+        detecteurs.append(_mouvement_brutal)
+    if reglages.lire_booleen("alerte_dementie"):
+        detecteurs.append(_prevision_dementie)
+
+    for detecteur in detecteurs:
         try:
             trouvaille = detecteur(carburant)
         except Exception:
@@ -191,10 +201,14 @@ def verifier(carburant=None):
             alertes.append(trouvaille)
 
     # 1 & 2 — changement de recommandation à 7 jours.
-    try:
-        prevision = entrainement.prevoir(carburant, 7)
-    except ValueError:
+    prevision = None
+    if not reglages.lire_booleen("alerte_tendance"):
         prevision = None
+    else:
+        try:
+            prevision = entrainement.prevoir(carburant, 7)
+        except ValueError:
+            prevision = None
 
     if prevision and prevision["conseil"] != "indecis":
         cle = f"conseil:{carburant}"
@@ -233,6 +247,9 @@ def verifier(carburant=None):
                             "titre": titre, "corps": corps})
 
     # 3 — une station suivie passe sous son seuil.
+    if not reglages.lire_booleen("alerte_favoris"):
+        return alertes
+
     with base.connexion() as cx:
         derniere_date = cx.execute("SELECT MAX(date) FROM prix_station").fetchone()[0]
         favoris = cx.execute(
@@ -314,17 +331,17 @@ def envoyer(alertes, journal=print):
         journal("  alertes : rien à signaler")
         return 0
 
-    hote = os.environ.get("SMTP_HOTE")
-    destinataire = os.environ.get("ALERTE_DESTINATAIRE")
+    hote = reglages.lire("smtp_hote")
+    destinataire = reglages.lire("alerte_destinataire")
     if not hote or not destinataire:
         journal(f"  alertes : {len(alertes)} à signaler, mais SMTP non configuré")
         for alerte in alertes:
             journal(f"    · {alerte['titre']}")
         return 0
 
-    port = int(os.environ.get("SMTP_PORT", "587"))
-    utilisateur = os.environ.get("SMTP_UTILISATEUR", "")
-    motdepasse = os.environ.get("SMTP_MOTDEPASSE", "")
+    port = reglages.lire_entier("smtp_port", 587)
+    utilisateur = reglages.lire("smtp_utilisateur")
+    motdepasse = reglages.lire("smtp_motdepasse")
     sujet, texte, html = _composer(alertes)
 
     message = EmailMessage()
@@ -348,3 +365,54 @@ def envoyer(alertes, journal=print):
 
     journal(f"  alertes : {len(alertes)} signalement(s) envoyé(s) à {destinataire}")
     return len(alertes)
+
+
+def envoyer_essai():
+    """Expédie un message de vérification, et rapporte l'échec en clair.
+
+    Une configuration de messagerie échoue presque toujours en silence : mot
+    de passe ordinaire refusé là où Google exige un mot de passe d'application,
+    port fermé, hôte mal orthographié. Ce bouton transforme un mystère en
+    message d'erreur lisible.
+    """
+    if not reglages.messagerie_configuree():
+        return False, "Renseignez au moins le serveur SMTP et le destinataire."
+
+    hote = reglages.lire("smtp_hote")
+    port = reglages.lire_entier("smtp_port", 587)
+    utilisateur = reglages.lire("smtp_utilisateur")
+    motdepasse = reglages.lire("smtp_motdepasse")
+    destinataire = reglages.lire("alerte_destinataire")
+
+    message = EmailMessage()
+    message["Subject"] = "Essai — suivi du prix des carburants"
+    message["From"] = utilisateur or f"carburants@{hote}"
+    message["To"] = destinataire
+    message.set_content(
+        "Ce message confirme que votre messagerie est correctement réglée.\n\n"
+        "Les alertes vous parviendront de la même manière : un seul courriel "
+        "par jour au plus, uniquement quand la situation change.\n\n"
+        "—\nSuivi du prix des carburants"
+    )
+
+    try:
+        with smtplib.SMTP(hote, port, timeout=20) as serveur:
+            if port == 587:
+                serveur.starttls()
+            if utilisateur:
+                serveur.login(utilisateur, motdepasse)
+            serveur.send_message(message)
+    except smtplib.SMTPAuthenticationError:
+        return False, (
+            "Le serveur a refusé les identifiants. Avec Gmail, il faut un mot "
+            "de passe d'application créé dans les réglages de sécurité du "
+            "compte Google : le mot de passe habituel est toujours rejeté."
+        )
+    except smtplib.SMTPException as erreur:
+        return False, f"Le serveur de messagerie a répondu : {erreur}"
+    except OSError as erreur:
+        return False, (
+            f"Impossible de joindre {hote} sur le port {port} ({erreur}). "
+            "Vérifiez le nom du serveur et le port."
+        )
+    return True, f"Message d'essai envoyé à {destinataire}."

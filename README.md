@@ -182,10 +182,30 @@ modifiée : `github.com/Mathiaspayet?tab=packages` → **suivi-prix-essence** �
 
 ### Alertes par courriel (facultatif)
 
-Décommentez les six lignes `SMTP_*` du fichier compose et complétez-les.
+Tout se règle depuis le bouton **Réglages** de la page : serveur de messagerie,
+destinataire, choix des alertes actives et de leur sensibilité. Un bouton
+*Envoyer un message d'essai* vérifie la configuration et rapporte l'erreur en
+clair — une messagerie mal réglée échoue presque toujours en silence.
+
 Avec Gmail, il faut créer un **mot de passe d'application** dans les réglages
-de sécurité du compte Google : le mot de passe habituel est refusé par les
-programmes.
+de sécurité du compte Google : le mot de passe habituel est systématiquement
+refusé par les programmes.
+
+Les lignes `SMTP_*` du fichier compose restent acceptées comme configuration
+initiale. Ce qui est saisi dans la page l'emporte sur elles, et effacer un
+champ dans la page rend la main au fichier.
+
+> **Cette page règle des identifiants de messagerie et n'est protégée par
+> aucun mot de passe par défaut.** C'est acceptable sur un réseau domestique
+> fermé. Dès que l'application est publiée au-delà — reverse proxy,
+> QuickConnect, ouverture de port — définissez `MOT_DE_PASSE_ADMIN` dans le
+> fichier compose. Seule la configuration est alors verrouillée ; la
+> consultation reste libre.
+>
+> Le mot de passe de messagerie est conservé en clair dans la base SQLite, sur
+> votre NAS. C'est inévitable : s'authentifier auprès d'un serveur SMTP exige
+> de le détenir en clair au moment de l'envoi. Il n'est en revanche jamais
+> renvoyé par l'interface, qui peut l'écrire sans jamais le relire.
 
 Cinq événements déclenchent un message, et uniquement au moment où la situation
 bascule — jamais tant qu'elle se maintient :

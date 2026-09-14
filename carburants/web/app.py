@@ -6,17 +6,18 @@ l'installation sur un NAS triviale.
 """
 import datetime as dt
 import os
+import secrets
 import threading
 from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
-from carburants import base, config
+from carburants import base, config, reglages
 from carburants.modele import entrainement
 from carburants.sources import stations
 
@@ -25,6 +26,12 @@ DOSSIER_WEB = config.RACINE / "carburants" / "web"
 # Heure de la collecte quotidienne. Le fichier officiel est alimenté en continu
 # par les stations ; en fin de matinée, les relevés de la nuit y figurent.
 HEURE_COLLECTE = int(os.environ.get("HEURE_COLLECTE", "11"))
+
+# Mot de passe protégeant la page de configuration. Facultatif : sur un réseau
+# domestique, l'application est souvent laissée ouverte. Il devient en revanche
+# indispensable dès qu'elle est publiée au-delà du réseau local, puisque cette
+# page règle des identifiants de messagerie.
+MOT_DE_PASSE_ADMIN = os.environ.get("MOT_DE_PASSE_ADMIN", "")
 
 # --- Collecte automatique -------------------------------------------------
 
@@ -270,12 +277,71 @@ def api_reglages():
     La commune est résolue en coordonnées côté serveur, pour que la page
     affiche des stations dès son ouverture sans aucune saisie.
     """
-    proposees = stations.chercher_commune(config.COMMUNE_PAR_DEFAUT)
+    proposees = stations.chercher_commune(reglages.lire("commune_par_defaut"))
     return {
         "commune": proposees[0] if proposees else None,
-        "rayon_km": config.RAYON_PAR_DEFAUT_KM,
+        "rayon_km": reglages.lire_entier("rayon_par_defaut_km", 30),
         "carburants": config.CARBURANTS,
     }
+
+
+# --- Configuration ---------------------------------------------------------
+
+def _verifier_acces(mot_de_passe):
+    """Contrôle l'accès à la configuration, si un mot de passe a été défini.
+
+    La comparaison passe par « compare_digest », qui met toujours le même temps
+    à répondre quelle que soit la longueur du préfixe correct. Une comparaison
+    ordinaire s'interrompt au premier caractère faux, et ce minuscule écart de
+    durée suffit à retrouver un mot de passe caractère par caractère.
+    """
+    if not MOT_DE_PASSE_ADMIN:
+        return
+    if not mot_de_passe or not secrets.compare_digest(
+        str(mot_de_passe), MOT_DE_PASSE_ADMIN
+    ):
+        raise HTTPException(401, "Mot de passe incorrect.")
+
+
+@application.get("/api/configuration")
+def api_configuration(x_mot_de_passe: str = Header(None)):
+    """Réglages actuels. Le mot de passe de messagerie n'est jamais renvoyé."""
+    _verifier_acces(x_mot_de_passe)
+    valeurs = reglages.tous()
+    valeurs["protegee"] = bool(MOT_DE_PASSE_ADMIN)
+    valeurs["carburants"] = config.CARBURANTS
+    valeurs["messagerie_configuree"] = reglages.messagerie_configuree()
+    return valeurs
+
+
+@application.post("/api/configuration")
+def api_enregistrer_configuration(
+    valeurs: dict = Body(...), x_mot_de_passe: str = Header(None)
+):
+    """Enregistre les réglages saisis dans la page.
+
+    Un champ laissé vide est effacé plutôt qu'enregistré vide : la variable
+    d'environnement du conteneur reprend alors la main, ce qui permet de
+    revenir en arrière sans se souvenir de l'ancienne valeur.
+    """
+    _verifier_acces(x_mot_de_passe)
+    valeurs.pop("protegee", None)
+    # Un mot de passe non retouché arrive à None : on ne l'écrase pas.
+    if valeurs.get("smtp_motdepasse") is None:
+        valeurs.pop("smtp_motdepasse", None)
+    modifies = reglages.ecrire(valeurs)
+    return {"ok": True, "modifies": modifies,
+            "messagerie_configuree": reglages.messagerie_configuree()}
+
+
+@application.post("/api/configuration/essai")
+def api_essai_messagerie(x_mot_de_passe: str = Header(None)):
+    """Envoie un message de vérification et rapporte l'échec en clair."""
+    _verifier_acces(x_mot_de_passe)
+    from carburants import alertes
+
+    reussi, message = alertes.envoyer_essai()
+    return {"ok": reussi, "message": message}
 
 
 @application.get("/api/palmares")

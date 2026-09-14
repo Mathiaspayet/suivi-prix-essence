@@ -24,6 +24,15 @@ CREATE TABLE IF NOT EXISTS prix_national (
     PRIMARY KEY (date, carburant)
 );
 
+-- Réglages saisis depuis la page. Ils l'emportent sur les variables
+-- d'environnement du conteneur, lesquelles servent alors de valeurs initiales
+-- et de filet de secours.
+CREATE TABLE IF NOT EXISTS reglage (
+    cle        TEXT PRIMARY KEY,
+    valeur     TEXT NOT NULL,
+    modifie_le TEXT NOT NULL
+);
+
 -- Indicateurs de marché : baril de Brent, taux de change euro/dollar.
 CREATE TABLE IF NOT EXISTS marche (
     date       TEXT NOT NULL,
