@@ -27,19 +27,33 @@ leurs hausses par paliers sur plusieurs jours, si bien qu'une tendance entamée 
 de bonnes chances de se poursuivre. C'est ce que l'outil exploite, et c'est
 aussi tout ce dont on a besoin pour décider de faire le plein ou non.
 
+**Ce n'est pas l'algorithme le plus savant qui gagne.** Trois familles ont
+concouru, et le classement est instructif. Les *arbres de gradient*, les plus
+sophistiqués, arrivent derniers : chaque arbre corrigeant les erreurs du
+précédent, ils finissent par apprendre le bruit par cœur. La *régression
+logistique* fait honorablement, sa simplicité même l'empêchant de s'égarer. Et
+c'est la *forêt aléatoire* qui l'emporte de trois à cinq points — cinq cents
+arbres indépendants dont on moyenne les avis, si bien que leurs erreurs se
+compensent au lieu de s'accumuler.
+
+Une version antérieure de ce projet concluait que « les arbres sont mauvais
+ici ». C'était faux, et l'erreur vaut d'être signalée : un seul essai avait été
+fait, avec le gradient. La manière dont les arbres sont assemblés compte
+davantage que le fait d'en employer.
+
 Justesse mesurée sur des périodes que le modèle n'avait jamais vues
 (2019-2026, validation glissante) :
 
 | Carburant | à 7 jours | à 14 jours | à 30 jours | Méthode retenue |
 |-----------|-----------|------------|------------|-----------------|
-| Gazole    | 75 %      | 68 %       | 64 %       | modèle (tendance à 14 j) |
-| SP95      | **82 %**  | 74 %       | 61 %       | modèle |
-| SP98      | 80 %      | 74 %       | 63 %       | modèle |
-| E10       | 77 %      | 71 %       | 62 %       | modèle |
+| Gazole    | 79 %      | 71 %       | 66 %       | forêt aléatoire |
+| SP95      | **86 %**  | 77 %       | 65 %       | forêt aléatoire |
+| SP98      | 82 %      | 76 %       | 65 %       | forêt aléatoire |
+| E10       | 81 %      | 73 %       | 62 %       | forêt aléatoire |
 | E85       | 76 %      | 82 %       | 69 %       | tendance |
-| GPLc      | 74 %      | 78 %       | 67 %       | tendance |
+| GPLc      | 80 %      | 78 %       | 67 %       | forêt / tendance |
 
-Autrement dit : **à sept jours, l'outil se trompe une fois sur quatre à une fois sur cinq.**
+Autrement dit : **à sept jours, l'outil se trompe environ une fois sur cinq.**
 À trente jours, une fois sur trois. Et il ne verra jamais venir une crise
 géopolitique ni un changement de fiscalité.
 

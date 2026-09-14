@@ -15,11 +15,24 @@ c'est aussi la seule chose dont on ait besoin pour décider de faire le plein ou
 d'attendre. Les stations répercutent leurs hausses par paliers sur plusieurs
 jours : une tendance entamée a de bonnes chances de se poursuivre.
 
-**Ce qui a été retenu.** Une régression logistique, c'est-à-dire le modèle le
-plus simple possible. Les arbres de gradient, plus sophistiqués, se sont révélés
-systématiquement moins bons : avec 2 800 jours d'historique, ils apprennent le
-bruit par cœur. Le modèle retenu égale la règle « la tendance se poursuit » à
-7 jours et la dépasse de 2 à 4 points à 30 jours, là où cette règle s'essouffle.
+**Ce qui a été retenu.** Une forêt aléatoire fortement bridée. Trois familles
+ont concouru, et l'ordre d'arrivée mérite une explication, car il est
+contre-intuitif :
+
+- les *arbres de gradient* sont les plus mauvais. Ils construisent leurs arbres
+  les uns après les autres, chacun s'attachant à corriger les erreurs du
+  précédent — ce qui revient, sur une série aussi bruitée, à apprendre le bruit
+  par cœur ;
+- la *régression logistique* fait honorablement, parce que sa simplicité même
+  l'empêche de s'égarer ;
+- la *forêt aléatoire* l'emporte nettement. Elle cultive cinq cents arbres
+  indépendants, chacun sur un échantillon et des variables tirés au hasard,
+  puis moyenne leurs avis. Les erreurs individuelles se compensent au lieu de
+  s'accumuler.
+
+La leçon n'est pas « les arbres sont mauvais » — une première version de ce
+fichier l'affirmait, sur la foi du seul essai de gradient — mais que la manière
+dont les arbres sont assemblés compte davantage que le fait d'en employer.
 
 Tous les chiffres annoncés sont mesurés en validation glissante, sur des jours
 que le modèle n'avait jamais vus.
@@ -28,6 +41,7 @@ import datetime as dt
 import pickle
 
 import numpy as np
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
@@ -42,18 +56,37 @@ SEUIL_MOUVEMENT = 0.005
 DOSSIER_MODELES = config.DOSSIER_DONNEES / "modeles"
 
 
-def fabriquer():
-    """Le modèle retenu.
+def fabriquer_candidats():
+    """Les modèles mis en concurrence, reconstruits à neuf à chaque appel.
 
-    La normalisation préalable est indispensable : sans elle, une variable
-    exprimée en dollars pèserait mécaniquement plus lourd qu'une variable
-    exprimée en centimes. Le paramètre C=0.1 impose une régularisation ferme,
-    qui empêche le modèle de s'attacher à des coïncidences de l'historique.
+    Tous deux sont délibérément bridés. Avec 2 800 jours d'historique et un
+    signal faible, la contrainte protège mieux qu'elle ne limite : un modèle
+    libre de ses mouvements apprend le bruit des années passées et le
+    restitue fidèlement sur des données qu'il n'a jamais vues, ce qui ne sert
+    à rien.
+
+    - « foret » : cinq cents arbres de profondeur 4 au plus, chacun exigeant
+      soixante exemples par feuille. Aucun n'est bon isolément ; c'est leur
+      moyenne qui l'est.
+    - « logistique » : la normalisation évite qu'une variable en dollars pèse
+      mécaniquement plus lourd qu'une variable en centimes, et C=0.1 impose
+      une régularisation ferme.
     """
-    return make_pipeline(
-        StandardScaler(),
-        LogisticRegression(C=0.1, max_iter=2000),
-    )
+    return {
+        "foret": RandomForestClassifier(
+            n_estimators=500, max_depth=4, min_samples_leaf=60,
+            random_state=0, n_jobs=-1,
+        ),
+        "logistique": make_pipeline(
+            StandardScaler(),
+            LogisticRegression(C=0.1, max_iter=2000),
+        ),
+    }
+
+
+def fabriquer(nom="foret"):
+    """Un candidat précis, par son nom."""
+    return fabriquer_candidats()[nom]
 
 
 def valider(carburant, horizon, nb_plis=6):
@@ -75,7 +108,9 @@ def valider(carburant, horizon, nb_plis=6):
 
     n = len(X)
     taille_pli = n // (nb_plis + 1)
-    justesse = {"modele": [], "momentum": [], "toujours_hausse": []}
+    noms = list(fabriquer_candidats())
+    justesse = {nom: [] for nom in noms}
+    justesse.update({"momentum": [], "toujours_hausse": []})
     periodes = []
 
     for pli in range(nb_plis):
@@ -96,28 +131,27 @@ def valider(carburant, horizon, nb_plis=6):
             continue
         verite = (y_test[bouge] > 0).astype(int)
 
-        modele = fabriquer()
-        modele.fit(X_ent, (y_ent > 0).astype(int))
-        prediction = modele.predict(X_test)[bouge.values]
+        for nom, modele in fabriquer_candidats().items():
+            modele.fit(X_ent, (y_ent > 0).astype(int))
+            prediction = modele.predict(X_test)[bouge.values]
+            justesse[nom].append(float((prediction == verite).mean()))
 
-        justesse["modele"].append(float((prediction == verite).mean()))
         justesse["momentum"].append(
             float(((X_test["var_pompe_7j"][bouge] > 0).astype(int) == verite).mean())
         )
         justesse["toujours_hausse"].append(float((verite == 1).mean()))
         periodes.append((X_test.index[0].date(), X_test.index[-1].date()))
 
-    if not justesse["modele"]:
+    if not justesse[noms[0]]:
         raise ValueError("Historique trop court pour valider.")
 
     # Amplitude typique d'une variation sur cet horizon : sert à annoncer un
     # ordre de grandeur, et non un chiffre faussement précis.
     amplitudes = np.abs(y[np.abs(y) > SEUIL_MOUVEMENT])
-    return {
+    resume = {
         "carburant": carburant,
         "horizon": horizon,
         "nb_jours": int(len(X)),
-        "justesse": float(np.mean(justesse["modele"])) * 100,
         "justesse_momentum": float(np.mean(justesse["momentum"])) * 100,
         "justesse_toujours_hausse": float(np.mean(justesse["toujours_hausse"])) * 100,
         "amplitude_mediane_cts": float(np.median(amplitudes)) * 100,
@@ -125,26 +159,30 @@ def valider(carburant, horizon, nb_plis=6):
         "nb_plis": len(periodes),
         "periode_test": f"{periodes[0][0]} → {periodes[-1][1]}",
     }
+    # Une entrée par candidat : « justesse_foret », « justesse_logistique »…
+    for nom in noms:
+        resume[f"justesse_{nom}"] = float(np.mean(justesse[nom])) * 100
+    return resume
 
 
 def choisir_methode(mesures):
     """Retient, pour ce carburant et cet horizon, la méthode qui a gagné.
 
-    Le modèle n'est pas conservé d'office. Sur l'E85 et le GPLc il se fait
+    Aucun modèle n'est conservé d'office. Sur l'E85 et le GPLc, tous se font
     battre de dix à vingt-cinq points par la simple règle de tendance, et la
     raison en est claire : ces carburants ne suivent pas le pétrole. L'E85 est
     de l'éthanol, dont le prix dépend de la betterave et de la canne ; le GPLc
     est du propane, négocié sur un autre marché. Les variables bâties autour du
-    baril de Brent n'y apportent aucune information, et le modèle s'en trouve
-    égaré plutôt qu'aidé.
+    baril et des carburants de gros n'y apportent aucune information, et les
+    modèles s'en trouvent égarés plutôt qu'aidés.
 
     Livrer un modèle sophistiqué là où une règle de trois fait mieux serait un
-    mauvais service rendu. On garde donc la meilleure des deux, et on dit
-    laquelle.
+    mauvais service rendu. On garde donc le meilleur des trois, et on dit
+    lequel.
     """
-    if mesures["justesse"] >= mesures["justesse_momentum"]:
-        return "modele"
-    return "momentum"
+    concurrents = {nom: mesures[f"justesse_{nom}"] for nom in fabriquer_candidats()}
+    concurrents["momentum"] = mesures["justesse_momentum"]
+    return max(concurrents, key=concurrents.get)
 
 
 def entrainer(carburant, horizon, journal=print):
@@ -155,16 +193,26 @@ def entrainer(carburant, horizon, journal=print):
     après avoir tout appris — ne mesurerait que la mémoire du modèle.
     """
     mesures = valider(carburant, horizon)
-    mesures["methode"] = choisir_methode(mesures)
+    methode = choisir_methode(mesures)
+    mesures["methode"] = methode
     mesures["justesse_retenue"] = (
-        mesures["justesse"] if mesures["methode"] == "modele"
-        else mesures["justesse_momentum"]
+        mesures["justesse_momentum"] if methode == "momentum"
+        else mesures[f"justesse_{methode}"]
     )
 
-    tableau = caracteristiques.construire(carburant, horizon)
-    X, y, _ = caracteristiques.separer(tableau)
-    modele = fabriquer()
-    modele.fit(X, (y > 0).astype(int))
+    modele = None
+    if methode != "momentum":
+        tableau = caracteristiques.construire(carburant, horizon)
+        X, y, _ = caracteristiques.separer(tableau)
+        modele = fabriquer(methode)
+        modele.fit(X, (y > 0).astype(int))
+        # L'entraînement profite des cœurs disponibles, mais la prévision ne
+        # porte que sur une seule ligne : répartir cinq cents arbres entre
+        # plusieurs fils coûte alors quatre fois plus cher que de les parcourir
+        # l'un après l'autre (143 ms contre 38). On fige donc le mode
+        # séquentiel avant d'enregistrer.
+        if hasattr(modele, "n_jobs"):
+            modele.n_jobs = 1
 
     DOSSIER_MODELES.mkdir(parents=True, exist_ok=True)
     chemin = DOSSIER_MODELES / f"{carburant}_{horizon}j.pkl"
@@ -174,17 +222,20 @@ def entrainer(carburant, horizon, journal=print):
                 "modele": modele,
                 "colonnes": caracteristiques.COLONNES_CARACTERISTIQUES,
                 "mesures": mesures,
-                "methode": mesures["methode"],
+                "methode": methode,
                 "entraine_le": dt.date.today().isoformat(),
             },
             fichier,
         )
+
+    detail = " / ".join(
+        f"{nom} {mesures[f'justesse_{nom}']:.1f}" for nom in fabriquer_candidats()
+    )
     journal(
-        f"  {carburant:7} {horizon:2}j : {mesures['methode']:8} retenu → "
+        f"  {carburant:7} {horizon:2}j : {methode:10} retenu → "
         f"{mesures['justesse_retenue']:.1f}% de bon sens "
-        f"(modèle {mesures['justesse']:.1f} / tendance "
-        f"{mesures['justesse_momentum']:.1f} / biais "
-        f"{mesures['justesse_toujours_hausse']:.1f})"
+        f"({detail} / tendance {mesures['justesse_momentum']:.1f} "
+        f"/ biais {mesures['justesse_toujours_hausse']:.1f})"
     )
     return mesures
 
@@ -219,6 +270,26 @@ def entrainer_tout(carburants=None, journal=print):
 SEUIL_RECOMMANDATION = 0.62
 
 
+# Les prévisions ne changent qu'une fois par jour, à la collecte. Les
+# recalculer à chaque affichage ferait relire toute la base et réinterroger
+# cinq cents arbres pour un résultat identique — coûteux sur le petit
+# processeur d'un NAS. La clé inclut la date des données : dès que la collecte
+# apporte un jour de plus, le cache se périme de lui-même.
+_cache_previsions = {}
+
+
+def _date_des_donnees():
+    """Jour le plus récent présent en base, qui sert de clé de fraîcheur.
+
+    Une seule requête, sans lecture de l'historique : c'est ce qui permet de
+    répondre depuis le cache sans avoir rien recalculé.
+    """
+    from carburants import base
+
+    with base.connexion() as cx:
+        return cx.execute("SELECT MAX(date) FROM prix_national").fetchone()[0]
+
+
 def prevoir(carburant, horizon):
     """Produit la prévision du jour pour un carburant et un horizon.
 
@@ -231,6 +302,13 @@ def prevoir(carburant, horizon):
         raise ValueError(f"Aucun modèle entraîné pour {carburant}/{horizon}j.")
 
     mesures = paquet["mesures"]
+
+    # Contrôle du cache avant toute lecture : c'est tout l'intérêt.
+    fraicheur = (_date_des_donnees(), paquet["entraine_le"])
+    cle = (carburant, horizon, fraicheur)
+    if cle in _cache_previsions:
+        return _cache_previsions[cle]
+
     tableau = caracteristiques.construire(carburant, horizon)
     X, _, dates = caracteristiques.separer(tableau, pour_entrainement=False)
     if X.empty:
@@ -239,7 +317,7 @@ def prevoir(carburant, horizon):
     dernier_jour = X.iloc[[-1]]
     date_calcul = dates[-1].date()
 
-    if paquet["methode"] == "modele":
+    if paquet["methode"] != "momentum" and paquet["modele"] is not None:
         probabilite_hausse = float(paquet["modele"].predict_proba(dernier_jour)[0, 1])
     else:
         # La règle de tendance ne rend qu'un verdict binaire. On le convertit en
@@ -260,7 +338,7 @@ def prevoir(carburant, horizon):
     else:
         conseil, resume = "indecis", "Aucune tendance nette"
 
-    return {
+    prevision = {
         "carburant": carburant,
         "horizon": horizon,
         "date_calcul": date_calcul.isoformat(),
@@ -276,3 +354,10 @@ def prevoir(carburant, horizon):
         "justesse_pct": round(mesures["justesse_retenue"], 1),
         "entraine_le": paquet["entraine_le"],
     }
+    # On écarte les entrées devenues obsolètes — celles calculées sur des
+    # données ou un modèle antérieurs — sans toucher aux autres carburants et
+    # horizons du jour, qui restent parfaitement valables.
+    for ancienne in [k for k in _cache_previsions if k[2] != fraicheur]:
+        del _cache_previsions[ancienne]
+    _cache_previsions[cle] = prevision
+    return prevision
