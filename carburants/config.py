@@ -54,6 +54,18 @@ SERIE_EURUSD = "DEXUSEU"       # combien de dollars pour 1 euro
 # Un baril « pétrolier » vaut exactement 42 gallons américains.
 LITRES_PAR_BARIL = 158.987294928
 
+# --- Reconstruction du prix théorique -------------------------------------
+# La TVA s'applique sur le prix complet, taxes comprises. Une hausse d'un
+# centime du baril arrive donc à la pompe amplifiée de 20 %.
+TAUX_TVA = 1.20
+
+# Fenêtre sur laquelle on suit les taxes et les marges. Elles dérivent
+# lentement : les figer sur une moyenne fixe donne 12,6 centimes d'erreur,
+# les suivre sur trois mois la ramène à 4,4. Une fenêtre plus courte
+# collerait mieux encore, mais absorberait le retard qu'on cherche
+# justement à faire voir.
+FENETRE_ECART_JOURS = 90
+
 # --- Modèle de prévision --------------------------------------------------
 # À combien de jours d'avance on cherche à prévoir.
 HORIZONS_JOURS = [7, 14, 30]

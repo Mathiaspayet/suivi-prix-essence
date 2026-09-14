@@ -24,6 +24,12 @@
   --bien:           #0ca30c;
   --alerte:         #fab219;
   --critique:       #d03b3b;
+  /* Bande entre les deux courbes du graphique de répercussion, teintée selon
+     le sens du retard : le prix payé est-il au-dessus ou en dessous de ce que
+     justifie le baril ? La teinte ne porte jamais l'information seule — la
+     légende la nomme, et l'infobulle donne le chiffre. */
+  --bande-defavorable: rgba(208,59,59,0.20);
+  --bande-favorable:   rgba(12,163,12,0.18);
   --rayon: 10px;
 }
 @media (prefers-color-scheme: dark) {
@@ -34,6 +40,8 @@
     --grille:  #2c2c2a;  --axe:     #383835;
     --bordure: rgba(255,255,255,0.10);
     --serie-1: #3987e5;  --serie-2: #d95926;
+    --bande-defavorable: rgba(208,59,59,0.28);
+    --bande-favorable:   rgba(12,163,12,0.24);
   }
 }
 :root[data-theme="dark"] {
@@ -43,6 +51,8 @@
   --grille:  #2c2c2a;  --axe:     #383835;
   --bordure: rgba(255,255,255,0.10);
   --serie-1: #3987e5;  --serie-2: #d95926;
+  --bande-defavorable: rgba(208,59,59,0.28);
+  --bande-favorable:   rgba(12,163,12,0.24);
 }
 
 * { box-sizing: border-box; }
@@ -96,6 +106,7 @@ h2 { font-size: 15px; margin: 0 0 12px; color: var(--encre-2); font-weight: 600;
 @media (max-width: 640px) { .zone-graphe { height: 260px; } }
 .legende-graphe { display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 10px; font-size: 13px; color: var(--encre-2); }
 .legende-graphe span.marque { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 6px; }
+.legende-graphe span.pave { display: inline-block; width: 14px; height: 10px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
 .plages { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
 
 /* --- Tableaux --- */
@@ -160,18 +171,12 @@ footer a { color: inherit; }
 
   <!-- Graphique -->
   <section class="carte">
-    <h2>Évolution du prix et de son coût de matière première</h2>
+    <h2 id="titre-graphe">Évolution du prix</h2>
+    <div class="plages" id="vues"></div>
     <div class="plages" id="plages"></div>
-    <p class="legende-graphe">
-      <span><span class="marque" style="background:var(--serie-1)"></span>Prix à la pompe</span>
-      <span><span class="marque" style="background:var(--serie-2)"></span>Matière première (pétrole brut)</span>
-    </p>
+    <p class="legende-graphe" id="legende-graphe"></p>
     <div class="zone-graphe"><canvas id="graphe"></canvas></div>
-    <p class="encart">
-      L'espace entre les deux courbes représente les taxes, le raffinage, le transport
-      et les marges. Il constitue l'essentiel du prix payé : la matière première
-      compte pour environ un quart du montant affiché à la pompe.
-    </p>
+    <p class="encart" id="note-graphe"></p>
   </section>
 
   <!-- Stations -->
@@ -330,29 +335,112 @@ async function chargerPrevisions() {
 }
 
 /* ---------- Graphique ---------- */
+let vueGraphique = localStorage.getItem("vue") || "reels";
+
+/* Les deux lectures possibles des mêmes données.
+   « Prix réels » montre la part des taxes ; « Répercussion » montre le retard
+   avec lequel la pompe suit le baril. Jamais deux axes verticaux : avec deux
+   échelles indépendantes, on étire n'importe quelle courbe jusqu'à ce qu'elle
+   épouse l'autre, et le graphique cesse de rien démontrer. */
+const VUES = {
+  reels: {
+    nom: "Prix réels",
+    titre: "Évolution du prix et de son coût de matière première",
+    series: [
+      { cle: "pompe", nom: "Prix à la pompe", couleur: "--serie-1" },
+      { cle: "matiere_premiere", nom: "Matière première (pétrole brut)", couleur: "--serie-2" },
+    ],
+    // L'échelle part de zéro : c'est ce qui rend la part des taxes lisible.
+    depuisZero: true,
+    note: "L'espace entre les deux courbes représente les taxes, le raffinage, "
+        + "le transport et les marges. Il constitue l'essentiel du prix payé : la "
+        + "matière première compte pour environ un quart du montant affiché à la pompe.",
+  },
+  repercussion: {
+    nom: "Répercussion",
+    titre: "Avec quel retard la pompe suit-elle le baril ?",
+    series: [
+      { cle: "pompe", nom: "Prix réel à la pompe", couleur: "--serie-1" },
+      { cle: "pompe_theorique", nom: "Prix attendu d'après le baril", couleur: "--serie-2", bande: true },
+    ],
+    // Ici l'échelle se cale sur les données : partir de zéro écraserait les
+    // écarts de quelques centimes, qui sont précisément le sujet.
+    depuisZero: false,
+    note: "La courbe orange indique ce que coûterait le litre si les taxes et les "
+        + "marges restaient au niveau moyen des trois derniers mois. Elle suit le "
+        + "baril sans délai, là où le prix réel met quelques jours à s'ajuster : "
+        + "la bande entre les deux, c'est ce retard. En rouge, vous payez plus que "
+        + "ne le justifie le baril — c'est le cas typique d'une baisse que les "
+        + "stations n'ont pas encore répercutée. En vert, l'inverse : une hausse "
+        + "du baril qui n'est pas encore arrivée à la pompe, et le moment de "
+        + "faire le plein.",
+  },
+};
+
+function construireVues() {
+  const zone = document.getElementById("vues");
+  zone.innerHTML = "";
+  Object.entries(VUES).forEach(([cle, vue]) => {
+    const bouton = document.createElement("button");
+    bouton.className = "onglet";
+    bouton.textContent = vue.nom;
+    bouton.setAttribute("aria-pressed", cle === vueGraphique);
+    bouton.onclick = () => {
+      vueGraphique = cle;
+      localStorage.setItem("vue", cle);
+      construireVues();
+      chargerGraphique();
+    };
+    zone.appendChild(bouton);
+  });
+}
+
 async function chargerGraphique() {
+  const vue = VUES[vueGraphique] || VUES.reels;
   const reponse = await fetch(`/api/historique?carburant=${encodeURIComponent(carburantActif)}&jours=${joursAffiches}`);
-  const donnees = await reponse.json();
-  const points = donnees.points;
+  const points = (await reponse.json()).points;
+
+  document.getElementById("titre-graphe").textContent = vue.titre;
+  document.getElementById("note-graphe").textContent = vue.note;
+  let legende = vue.series.map((s) =>
+    `<span><span class="marque" style="background:${encre(s.couleur)}"></span>${s.nom}</span>`
+  ).join("");
+  if (vueGraphique === "repercussion") {
+    // La légende nomme les teintes : un daltonien, ou une impression en noir
+    // et blanc, doit pouvoir lire le graphique sans se fier à la couleur.
+    legende += `<span><span class="pave" style="background:${encre("--bande-defavorable")}"></span>Hausse répercutée d'avance, ou baisse en retard</span>`
+             + `<span><span class="pave" style="background:${encre("--bande-favorable")}"></span>Hausse pas encore répercutée</span>`;
+  }
+  document.getElementById("legende-graphe").innerHTML = legende;
+
+  const jeux = vue.series.map((serie, rang) => ({
+    label: serie.nom,
+    data: points.map((p) => p[serie.cle]),
+    borderColor: encre(serie.couleur),
+    backgroundColor: encre(serie.couleur),
+    // « -1 » remplit jusqu'à la série précédente, ce qui matérialise l'écart
+    // entre prix réel et prix attendu. Les deux teintes distinguent le sens du
+    // retard : « above » colore la zone où la courbe attendue passe au-dessus
+    // du prix réel — on paie alors moins que ne le justifie le baril.
+    fill: serie.bande
+      ? { target: "-1",
+          above: encre("--bande-favorable"),
+          below: encre("--bande-defavorable") }
+      : false,
+    borderWidth: 2,
+    pointRadius: 0,
+    pointHoverRadius: 4,
+    tension: 0.1,
+    // Un jour sans relevé laisse un trou dans la courbe plutôt qu'un trait
+    // droit qui inventerait une valeur.
+    spanGaps: false,
+  }));
 
   const configuration = {
     type: "line",
-    data: {
-      labels: points.map((p) => p.date),
-      // Conservées telles quelles pour les infobulles, qui affichent la date complète.
-      datasets: [
-        { label: "Prix à la pompe", data: points.map((p) => p.pompe),
-          borderColor: encre("--serie-1"), backgroundColor: encre("--serie-1"),
-          borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.1 },
-        { label: "Matière première", data: points.map((p) => p.matiere_premiere),
-          borderColor: encre("--serie-2"), backgroundColor: encre("--serie-2"),
-          borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.1 },
-      ],
-    },
+    data: { labels: points.map((p) => p.date), datasets: jeux },
     options: {
       responsive: true, maintainAspectRatio: false,
-      // Une seule échelle : les deux séries sont dans la même unité (€/L).
-      // Deux axes verticaux permettraient de faire dire n'importe quoi au graphique.
       interaction: { mode: "index", intersect: false },
       plugins: {
         legend: { display: false },
@@ -362,7 +450,15 @@ async function chargerGraphique() {
             label: (contexte) => `${contexte.dataset.label} : ${euros(contexte.parsed.y)} / L`,
             afterBody: (elements) => {
               const point = points[elements[0].dataIndex];
-              if (point.matiere_premiere == null) return "";
+              if (vueGraphique === "repercussion") {
+                if (point.pompe == null || point.pompe_theorique == null) return "";
+                const retard = (point.pompe - point.pompe_theorique) * 100;
+                if (Math.abs(retard) < 1) return "\nPrix aligné sur le baril";
+                return retard > 0
+                  ? `\nLa pompe est ${retard.toFixed(1).replace(".", ",")} cts au-dessus\nde ce que justifie le baril`
+                  : `\nLa pompe est ${Math.abs(retard).toFixed(1).replace(".", ",")} cts en dessous\nde ce que justifie le baril`;
+              }
+              if (point.matiere_premiere == null || point.pompe == null) return "";
               const ecart = point.pompe - point.matiere_premiere;
               const part = (point.matiere_premiere / point.pompe) * 100;
               return `\nTaxes et marges : ${euros(ecart)} / L\nMatière première : ${part.toFixed(0)} % du prix`;
@@ -371,16 +467,24 @@ async function chargerGraphique() {
         },
       },
       scales: {
-        x: { grid: { display: false },
-             ticks: { color: encre("--encre-3"), maxTicksLimit: 7, maxRotation: 0, autoSkipPadding: 14,
-                      font: { size: 11 },
-                      callback: function (valeur, index) {
-                        return dateCourte(this.getLabelForValue(valeur), joursAffiches > 400);
-                      } },
-             border: { color: encre("--axe") } },
-        y: { grid: { color: encre("--grille") }, border: { display: false },
-             ticks: { color: encre("--encre-3"), font: { size: 11 },
-                      callback: (v) => v.toFixed(2).replace(".", ",") + " €" } },
+        x: {
+          // Quadrillage vertical discret : il aide l'œil à rapporter un
+          // creux de la courbe orange au rebond de la bleue quelques jours plus tard.
+          grid: { display: true, color: encre("--grille"), drawTicks: false },
+          ticks: { color: encre("--encre-3"), maxTicksLimit: 7, maxRotation: 0,
+                   autoSkipPadding: 14, font: { size: 11 },
+                   callback: function (valeur) {
+                     return dateCourte(this.getLabelForValue(valeur), joursAffiches > 400);
+                   } },
+          border: { color: encre("--axe") },
+        },
+        y: {
+          beginAtZero: vue.depuisZero,
+          grid: { color: encre("--grille") },
+          border: { display: false },
+          ticks: { color: encre("--encre-3"), font: { size: 11 },
+                   callback: (v) => v.toFixed(2).replace(".", ",") + " €" },
+        },
       },
     },
   };
@@ -534,7 +638,7 @@ async function appliquerReglages() {
   }
 }
 
-construireOnglets(); construirePlages(); chargerEtat();
+construireOnglets(); construireVues(); construirePlages(); chargerEtat();
 chargerPrevisions(); chargerGraphique(); chargerFavoris();
 appliquerReglages();
 </script>

@@ -104,49 +104,52 @@ def api_previsions(carburant: str = Query("Gazole")):
 
 @application.get("/api/historique")
 def api_historique(carburant: str = Query("Gazole"), jours: int = Query(365)):
-    """Séries à tracer : prix à la pompe et coût de la matière première.
+    """Séries à tracer, toutes exprimées en euros par litre.
 
-    Les deux sont exprimés en euros par litre, ce qui autorise à les placer sur
-    un même graphique avec une seule échelle. L'espace qui les sépare
-    représente les taxes et les marges — soit les trois quarts du prix payé.
+    Trois courbes, une seule échelle — jamais deux axes verticaux : avec deux
+    échelles indépendantes, on peut étirer n'importe quelle courbe jusqu'à ce
+    qu'elle épouse l'autre, et le graphique ne prouve plus rien.
+
+    - « pompe » : le prix réellement affiché ;
+    - « matiere_premiere » : le pétrole contenu dans un litre ;
+    - « pompe_theorique » : ce que coûterait le litre si les taxes et les
+      marges restaient au niveau moyen des trois derniers mois.
+
+    Cette troisième courbe est l'objet du graphique de répercussion. Elle suit
+    le baril sans délai, là où le prix réel met quelques jours à s'ajuster :
+    l'écart entre les deux, c'est exactement l'inertie.
     """
     if carburant not in config.CARBURANTS:
         raise HTTPException(404, f"Carburant inconnu : {carburant}")
 
-    depuis = (dt.date.today() - dt.timedelta(days=jours)).isoformat()
-    with base.connexion() as cx:
-        pompe = cx.execute(
-            """SELECT date, prix_moyen, nb_stations FROM prix_national
-               WHERE carburant = ? AND date >= ? ORDER BY date""",
-            (carburant, depuis),
-        ).fetchall()
-        marche = cx.execute(
-            """SELECT date, indicateur, valeur FROM marche
-               WHERE date >= ? ORDER BY date""",
-            (depuis,),
-        ).fetchall()
+    from carburants.modele import caracteristiques
 
-    # Report de la dernière cotation connue sur les jours sans cotation.
-    brent, taux = {}, {}
-    for ligne in marche:
-        (brent if ligne["indicateur"] == "brent_usd" else taux)[ligne["date"]] = ligne["valeur"]
+    tableau = caracteristiques.charger_series(carburant)
+    brut_avec_tva = tableau["brent_eur_l"] * config.TAUX_TVA
+    # Moyenne glissante de l'écart : taxes et marges dérivent lentement, on
+    # les laisse dériver. Ce qui reste est le décalage de court terme.
+    ecart = (tableau["prix"] - brut_avec_tva).rolling(
+        config.FENETRE_ECART_JOURS, min_periods=20
+    ).mean()
+    tableau["pompe_theorique"] = brut_avec_tva + ecart
 
-    dernier_brent = dernier_taux = None
-    points = []
-    for ligne in pompe:
-        dernier_brent = brent.get(ligne["date"], dernier_brent)
-        dernier_taux = taux.get(ligne["date"], dernier_taux)
-        matiere = None
-        if dernier_brent and dernier_taux:
-            matiere = round(
-                dernier_brent / dernier_taux / config.LITRES_PAR_BARIL, 4
-            )
-        points.append({
-            "date": ligne["date"],
-            "pompe": round(ligne["prix_moyen"], 3),
-            "matiere_premiere": matiere,
-            "nb_stations": ligne["nb_stations"],
-        })
+    # On coupe après le calcul : la moyenne glissante a besoin des trois mois
+    # qui précèdent la période affichée pour être définie dès le premier jour.
+    tableau = tableau.iloc[-jours:] if jours < len(tableau) else tableau
+
+    def arrondir(valeur, decimales=3):
+        return None if valeur is None or valeur != valeur else round(float(valeur), decimales)
+
+    points = [
+        {
+            "date": horodatage.date().isoformat(),
+            "pompe": arrondir(ligne["prix"]),
+            "matiere_premiere": arrondir(ligne["brent_eur_l"], 4),
+            "pompe_theorique": arrondir(ligne["pompe_theorique"]),
+            "nb_stations": int(ligne["nb_stations"]) if ligne["nb_stations"] == ligne["nb_stations"] else None,
+        }
+        for horodatage, ligne in tableau.iterrows()
+    ]
     return {"carburant": carburant, "points": points}
 
 
