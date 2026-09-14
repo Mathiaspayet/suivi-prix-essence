@@ -89,6 +89,26 @@ TAUX_TVA = 1.20
 # justement à faire voir.
 FENETRE_ECART_JOURS = 90
 
+# --- Alertes --------------------------------------------------------------
+# Une alerte n'a de valeur que si elle est rare. Ces seuils sont calibrés sur
+# l'historique pour produire ensemble une trentaine de courriels par an, soit
+# un tous les douze jours environ. Les relever les espace encore.
+
+# Un mouvement est jugé brutal quand la variation sur trois jours dépasse ce
+# multiple de la variation habituelle. À 4, cela représente environ sept
+# baisses signalées par an sur le gazole.
+FACTEUR_MOUVEMENT_BRUTAL = 4.0
+
+# Écart minimal, en euros par litre, pour signaler qu'une prévision a été
+# démentie. En dessous de trois centimes, l'erreur ne mérite pas un courriel.
+ECART_PREVISION_DEMENTIE = 0.03
+
+# Silence imposé après un signalement de prévision démentie. Les prévisions de
+# jours voisins portent sur des fenêtres qui se recouvrent : quand le marché
+# part à contresens, chacune est démentie à son tour et l'on recevrait le même
+# avertissement trois jours de suite. Un seul message par épisode suffit.
+JOURS_SILENCE_APRES_DEMENTI = 14
+
 # --- Modèle de prévision --------------------------------------------------
 # Espacement des validations complètes. Départager les méthodes coûte près de
 # neuf dixièmes du temps de calcul — six plis fois deux candidats, soit douze

@@ -6,6 +6,8 @@
 <title>Suivi du prix des carburants</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#9981;</text></svg>">
 <script src="/statiques/chart.umd.min.js"></script>
+<link rel="stylesheet" href="/statiques/leaflet.css">
+<script src="/statiques/leaflet.js"></script>
 <style>
 /* Palette validée : les couleurs sont définies une fois comme variables, puis
    employées par leur rôle. Le passage en thème sombre ne change que ce bloc. */
@@ -132,6 +134,36 @@ button.action {
 button.lien { background: none; border: none; color: var(--serie-1); cursor: pointer; font: inherit; padding: 0; text-decoration: underline; }
 .propositions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 
+/* --- Carte --- */
+.zone-carte { height: 460px; border-radius: 8px; overflow: hidden; border: 1px solid var(--bordure); }
+@media (max-width: 640px) { .zone-carte { height: 340px; } }
+.leaflet-container { background: var(--plan); font-family: inherit; }
+:root[data-theme="dark"] .leaflet-tile,
+:root:not([data-theme="light"]) .leaflet-tile { filter: brightness(0.72) saturate(0.8) contrast(1.05); }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .leaflet-tile { filter: none; }
+}
+/* Pastille de prix : le nombre porte l'information, la teinte ne fait qu'aider
+   à balayer la carte du regard. */
+.pastille-prix {
+  font: 600 12px/1 system-ui, sans-serif; white-space: nowrap;
+  padding: 4px 6px; border-radius: 6px; text-align: center;
+  /* Anneau clair, dans les deux thèmes : les pastilles se détachent du fond
+     de carte, lequel reste clair même en thème sombre — on ne fait qu'atténuer
+     les tuiles, on ne les inverse pas. Sans cet anneau, deux stations voisines
+     qui se superposent se confondent en une seule tache. */
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.92), 0 1px 5px rgba(0,0,0,0.35);
+  cursor: pointer; transition: transform .12s;
+}
+.pastille-prix:hover { transform: scale(1.12); }
+.leaflet-popup-content { font: 14px/1.5 system-ui, sans-serif; margin: 12px 14px; }
+.leaflet-popup-content b { font-size: 15px; }
+.legende-carte { display: flex; flex-wrap: wrap; gap: 14px; margin: 12px 0 0; font-size: 12px; color: var(--encre-2); }
+.legende-carte span.puce { display: inline-block; width: 13px; height: 13px; border-radius: 4px;
+  vertical-align: middle; margin-right: 5px; border: 1px solid var(--bordure); }
+.bandeau-tendance { font-size: 13px; color: var(--encre-2); margin: 0 0 12px;
+  padding: 9px 12px; border-radius: 8px; border: 1px solid var(--bordure); background: var(--plan); }
+
 .encart {
   font-size: 13px; color: var(--encre-2); border-left: 3px solid var(--axe);
   padding: 2px 0 2px 14px; margin: 14px 0 0;
@@ -195,7 +227,13 @@ footer a { color: inherit; }
     </div>
     <div class="propositions" id="propositions"></div>
     <p id="resume-stations" class="encart" hidden></p>
-    <div class="defilement"><table id="tableau-stations"><tbody></tbody></table></div>
+    <div class="plages" id="affichage-stations"></div>
+    <p class="bandeau-tendance" id="bandeau-tendance" hidden></p>
+    <div id="bloc-carte" hidden>
+      <div class="zone-carte"><div id="carte" style="height:100%"></div></div>
+      <p class="legende-carte" id="legende-carte"></p>
+    </div>
+    <div class="defilement" id="bloc-liste"><table id="tableau-stations"><tbody></tbody></table></div>
     <p class="vide" id="stations-vide">Indiquez une commune pour comparer les stations alentour.</p>
   </section>
 
@@ -543,6 +581,120 @@ async function chargerGraphique() {
 
 /* ---------- Stations ---------- */
 let communeChoisie = null;
+let affichageStations = localStorage.getItem("affichage") || "carte";
+let carte = null, couchePastilles = null;
+
+/* Teinte des pastilles : écart au prix médian du secteur, en centimes.
+   Une échelle divergente — froid pour « moins cher », chaud pour « plus cher »,
+   neutre au milieu — parce que la médiane locale est un point de bascule qui a
+   du sens. Le prix reste écrit sur chaque pastille : la couleur ne porte jamais
+   l'information seule, ce qui la rend lisible en daltonisme comme à l'impression. */
+const PALIERS_PRIX = [
+  { max: -5,       fond: "#184f95", encre: "#ffffff", nom: "5 cts ou plus sous la médiane" },
+  { max: -1.5,     fond: "#86b6ef", encre: "#0b0b0b", nom: "légèrement moins cher" },
+  { max: 1.5,      fond: "#e1e0d9", encre: "#0b0b0b", nom: "prix médian du secteur" },
+  { max: 5,        fond: "#eba0a0", encre: "#0b0b0b", nom: "légèrement plus cher" },
+  { max: Infinity, fond: "#d03b3b", encre: "#ffffff", nom: "5 cts ou plus au-dessus" },
+];
+const palier = (ecartCts) => PALIERS_PRIX.find((p) => ecartCts < p.max) || PALIERS_PRIX[4];
+
+function construireAffichage() {
+  const zone = document.getElementById("affichage-stations");
+  zone.innerHTML = "";
+  [["carte", "Carte"], ["liste", "Liste"]].forEach(([cle, nom]) => {
+    const bouton = document.createElement("button");
+    bouton.className = "onglet";
+    bouton.textContent = nom;
+    bouton.setAttribute("aria-pressed", cle === affichageStations);
+    bouton.onclick = () => {
+      affichageStations = cle;
+      localStorage.setItem("affichage", cle);
+      construireAffichage();
+      chargerStations();
+    };
+    zone.appendChild(bouton);
+  });
+}
+
+function dessinerCarte(stations) {
+  document.getElementById("bloc-carte").hidden = false;
+  if (!carte) {
+    carte = L.map("carte", { scrollWheelZoom: false });
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 18,
+      // L'attribution est exigée par la licence des fonds de carte.
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    }).addTo(carte);
+  }
+  if (couchePastilles) couchePastilles.remove();
+  couchePastilles = L.layerGroup().addTo(carte);
+
+  const prix = stations.map((s) => s.prix).sort((a, b) => a - b);
+  const mediane = prix[Math.floor(prix.length / 2)];
+
+  // Les stations arrivent déjà triées du moins cher au plus cher.
+  stations.forEach((s, rang) => {
+    const ecart = (s.prix - mediane) * 100;
+    const p = palier(ecart);
+    const marqueur = L.marker([s.latitude, s.longitude], {
+      // Deux stations voisines finissent l'une sur l'autre à faible
+      // grossissement. On fait passer la moins chère au-dessus : c'est celle
+      // qu'on cherche, autant qu'elle soit toujours lisible.
+      zIndexOffset: 1000 - rang,
+      riseOnHover: true,
+      icon: L.divIcon({
+        className: "",
+        html: `<div class="pastille-prix" style="background:${p.fond};color:${p.encre}">`
+            + `${s.prix.toFixed(3).replace(".", ",")}</div>`,
+        iconSize: [52, 22], iconAnchor: [26, 11],
+      }),
+    });
+    const autres = Object.entries(s.tous_carburants || {})
+      .filter(([nom]) => nom !== carburantActif)
+      .map(([nom, v]) => `${nom} ${euros(v)}`).join(" · ");
+    marqueur.bindPopup(
+      `<b>${carburantActif} ${euros(s.prix)}</b><br>`
+      + `${s.adresse || ""}<br>${s.ville} ${s.code_postal}<br>`
+      + `<span style="color:#898781">à ${s.distance_km.toFixed(1).replace(".", ",")} km`
+      + `${ecart ? ` · ${ecart > 0 ? "+" : ""}${ecart.toFixed(1).replace(".", ",")} cts / médiane` : ""}</span>`
+      + (autres ? `<br><span style="color:#898781">${autres}</span>` : "")
+      + `<br><button class="lien" onclick="basculerFavori('${s.id}', ${s.favori ? 1 : 0})">`
+      + `${s.favori ? "Ne plus suivre" : "Suivre cette station"}</button>`
+    );
+    marqueur.addTo(couchePastilles);
+  });
+
+  carte.fitBounds(L.latLngBounds(stations.map((s) => [s.latitude, s.longitude])).pad(0.15));
+  // Leaflet mesure mal son conteneur quand celui-ci vient d'être affiché.
+  setTimeout(() => carte.invalidateSize(), 60);
+
+  document.getElementById("legende-carte").innerHTML = PALIERS_PRIX.map((p) =>
+    `<span><span class="puce" style="background:${p.fond}"></span>${p.nom}</span>`).join("")
+    + `<span style="color:var(--encre-3)">Agrandissez pour séparer les stations voisines.</span>`;
+}
+
+async function basculerFavori(id, estFavori) {
+  await fetch(`/api/favoris/${id}`, { method: estFavori ? "DELETE" : "POST" });
+  chargerStations(); chargerFavoris();
+}
+
+async function afficherTendance() {
+  const bandeau = document.getElementById("bandeau-tendance");
+  const d = await (await fetch(`/api/previsions?carburant=${encodeURIComponent(carburantActif)}`)).json();
+  const court = d.previsions.find((p) => p.horizon === 7 && !p.erreur);
+  if (!court) { bandeau.hidden = true; return; }
+  bandeau.hidden = false;
+  // La tendance est nationale, et c'est dit : les treize régions bougent le
+  // même jour (corrélation 0,99), mais annoncer une tendance par station
+  // laisserait croire à une précision qui n'existe pas.
+  const fleche = court.sens === "hausse" ? "▲" : "▼";
+  bandeau.innerHTML = court.conseil === "peu_fiable"
+    ? `Tendance à 7 jours : non communiquée, le modèle n'est pas assez fiable en ce moment.`
+    : `<b>${fleche} ${court.resume}</b> — tendance nationale à 7 jours, `
+      + `${court.probabilite_hausse.toFixed(0)} % de probabilité de hausse. `
+      + `Elle vaut pour toutes ces stations : les prix bougent partout le même jour, `
+      + `seuls leurs niveaux diffèrent.`;
+}
 
 async function proposerCommunes() {
   const terme = document.getElementById("commune").value.trim();
@@ -579,10 +731,18 @@ async function chargerStations() {
 
   if (!donnees.resultats.length) {
     vide.hidden = false; resume.hidden = true;
+    document.getElementById("bloc-carte").hidden = true;
+    document.getElementById("bloc-liste").hidden = true;
+    document.getElementById("bandeau-tendance").hidden = true;
     vide.textContent = `Aucune station ne propose du ${carburantActif} dans ce rayon.`;
     return;
   }
   vide.hidden = true; resume.hidden = false;
+  afficherTendance();
+  const enCarte = affichageStations === "carte";
+  document.getElementById("bloc-liste").hidden = enCarte;
+  document.getElementById("bloc-carte").hidden = !enCarte;
+  if (enCarte) dessinerCarte(donnees.resultats);
   const s = donnees.statistiques;
   resume.textContent = `${s.nb} stations trouvées. Entre la moins chère et la plus chère : `
     + `${s.ecart_cts.toFixed(1).replace(".", ",")} centimes par litre, `
@@ -721,7 +881,8 @@ async function appliquerReglages() {
   }
 }
 
-construireOnglets(); construireVues(); construirePlages(); chargerEtat();
+construireOnglets(); construireVues(); construirePlages();
+construireAffichage(); chargerEtat();
 chargerPrevisions(); chargerGraphique(); chargerFavoris(); chargerPalmares();
 appliquerReglages();
 </script>

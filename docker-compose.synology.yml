@@ -40,6 +40,10 @@ services:
       # SMTP_MOTDEPASSE: xxxx xxxx xxxx xxxx
       # ALERTE_DESTINATAIRE: mathias.payet@gmail.com
       # ALERTE_CARBURANT: Gazole
+      # Cinq situations déclenchent un message — bascule de tendance dans un
+      # sens ou dans l'autre, chute brutale, prévision démentie, station suivie
+      # sous son seuil. Tout ce qui tombe le même jour part dans un seul
+      # courriel : comptez une trentaine par an.
     volumes:
       # Base de données et modèles entraînés. Sur un volume nommé, ils
       # survivent aux mises à jour de l'image : sans cela, le NAS

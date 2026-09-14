@@ -174,7 +174,26 @@ def stations_autour(latitude, longitude, carburant, rayon_km=15, limite=40):
         resultats.append(ligne)
 
     resultats.sort(key=lambda r: r["prix"])
-    return resultats[:limite]
+    resultats = resultats[:limite]
+
+    # Tous les carburants de chaque station retenue, pour la fiche qui s'ouvre
+    # au clic sur la carte. Une seule requête plutôt qu'une par station.
+    if resultats:
+        identifiants = [r["id"] for r in resultats]
+        trous = ",".join("?" * len(identifiants))
+        with base.connexion() as cx:
+            autres = cx.execute(
+                f"""SELECT station_id, carburant, prix FROM prix_station
+                    WHERE date = ? AND station_id IN ({trous})""",
+                [derniere_date] + identifiants,
+            ).fetchall()
+        par_station = {}
+        for a in autres:
+            par_station.setdefault(a["station_id"], {})[a["carburant"]] = a["prix"]
+        for r in resultats:
+            r["tous_carburants"] = par_station.get(r["id"], {})
+
+    return resultats
 
 
 def historique_station(station_id, carburant, jours=180):

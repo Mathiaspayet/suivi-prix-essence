@@ -5,7 +5,8 @@ précise : **faut-il faire le plein maintenant, ou attendre ?**
 
 Elle fait trois choses :
 
-- **comparer** les stations autour d'une commune, de la moins chère à la plus chère ;
+- **comparer** les stations autour d'une commune, sur une carte ou en liste,
+  de la moins chère à la plus chère ;
 - **suivre** l'évolution du prix et la comparer au cours du pétrole brut ;
 - **prévoir** le sens de la prochaine variation, et prévenir par courriel quand il change.
 
@@ -186,12 +187,20 @@ Avec Gmail, il faut créer un **mot de passe d'application** dans les réglages
 de sécurité du compte Google : le mot de passe habituel est refusé par les
 programmes.
 
-Trois événements déclenchent un message, et uniquement au moment où la situation
+Cinq événements déclenchent un message, et uniquement au moment où la situation
 bascule — jamais tant qu'elle se maintient :
 
 1. la prévision passe à la baisse (inutile de faire le plein tout de suite) ;
 2. la prévision passe à la hausse (mieux vaut ne pas attendre) ;
-3. une station suivie descend sous le seuil qu'on lui a fixé.
+3. le prix chute brutalement — plus de quatre fois le mouvement habituel sur
+   trois jours, une occasion qui se referme souvent vite ;
+4. une prévision est démentie par les faits, d'au moins trois centimes ;
+5. une station suivie descend sous le seuil qu'on lui a fixé.
+
+Les seuils sont calibrés sur l'historique pour produire **une trentaine de
+courriels par an**, soit un tous les douze jours. Tout ce qui se déclenche le
+même jour part dans un seul message à plusieurs rubriques : trois courriels
+d'affilée, ce sont trois courriels ignorés.
 
 ---
 
