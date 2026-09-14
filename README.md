@@ -64,15 +64,7 @@ L'image est compilée automatiquement par GitHub à chaque modification du code,
 puis publiée sur `ghcr.io`. Le NAS se contente de la récupérer : il ne compile
 rien, ce qui lui épargne un travail dont il est bien incapable.
 
-### 1. Rendre l'image accessible (une seule fois)
-
-Après la toute première compilation, l'image publiée est **privée** par défaut
-et le NAS ne pourra pas la télécharger. Il faut la rendre publique :
-
-1. `github.com/Mathiaspayet?tab=packages` → paquet **suivi-prix-essence**
-2. *Package settings* → *Change visibility* → **Public**
-
-### 2. Créer le projet dans Container Manager
+### 1. Créer le projet dans Container Manager
 
 **Container Manager** → **Projet** → **Créer** → *Créer un fichier
 docker-compose.yml*, puis coller le contenu de
@@ -89,7 +81,7 @@ Au premier démarrage, l'application constitue seule son historique : environ
 page reste accessible pendant ce temps, simplement dépeuplée. Ensuite, elle se
 met à jour toute seule chaque jour à 11 h.
 
-### 3. Mises à jour automatiques
+### 2. Mises à jour automatiques
 
 Le conteneur porte l'étiquette
 `com.centurylinklabs.watchtower.scope=gestion-locative`, qui le place sous la
@@ -101,6 +93,17 @@ Le cycle complet, sans intervention : modification du code → push sur `main` �
 GitHub compile et publie → Watchtower le remarque dans les cinq minutes →
 le conteneur redémarre sur la nouvelle version. Les données, logées dans un
 volume nommé, traversent l'opération intactes.
+
+Une modification portant uniquement sur la documentation ne déclenche aucune
+compilation : recompiler et redéployer une application dont le code n'a pas
+bougé ne ferait que la redémarrer pour rien.
+
+### En cas d'erreur « unauthorized » au téléchargement
+
+L'image est publiée publiquement et se télécharge sans identification. Si le
+NAS venait malgré tout à se plaindre, c'est que la visibilité du paquet a été
+modifiée : `github.com/Mathiaspayet?tab=packages` → **suivi-prix-essence** →
+*Package settings* → *Change visibility* → **Public**.
 
 ### Alertes par courriel (facultatif)
 

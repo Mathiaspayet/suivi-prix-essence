@@ -15,6 +15,13 @@ name: Compilation et publication
 on:
   push:
     branches: [main]
+    # Une modification de la seule documentation ne justifie pas de
+    # recompiler l'image : Watchtower redémarrerait le conteneur pour
+    # y déployer un code rigoureusement identique.
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+      - ".gitignore"
   # Permet aussi de relancer une compilation à la main depuis l'onglet
   # « Actions » de GitHub, sans avoir à pousser un commit pour rien.
   workflow_dispatch:
