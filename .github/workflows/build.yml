@@ -19,6 +19,14 @@ on:
   # « Actions » de GitHub, sans avoir à pousser un commit pour rien.
   workflow_dispatch:
 
+# Une seule compilation à la fois par branche. Si un nouveau push survient
+# alors que la précédente tourne encore, celle-ci est abandonnée : inutile de
+# publier une image déjà périmée, et cela évite que deux exécutions poussent
+# l'étiquette « latest » en même temps.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRE: ghcr.io
   NOM_IMAGE: ${{ github.repository }}
@@ -33,6 +41,12 @@ jobs:
     steps:
       - name: Récupération du code
         uses: actions/checkout@v4
+
+      # Sans cette étape, Docker emploie son pilote par défaut, qui ne sait pas
+      # exporter de cache : la compilation échoue sur
+      # « Cache export is not supported for the docker driver ».
+      - name: Installation de Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Connexion au registre GitHub
         uses: docker/login-action@v3
