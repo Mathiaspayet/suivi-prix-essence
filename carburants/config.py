@@ -1,0 +1,56 @@
+"""Réglages du projet, regroupés en un seul endroit.
+
+Tout ce qui pourrait avoir besoin d'être modifié un jour est ici, plutôt que
+dispersé dans le code. C'est la première chose à lire pour comprendre le projet.
+"""
+import os
+from pathlib import Path
+
+# --- Emplacements ---------------------------------------------------------
+RACINE = Path(__file__).resolve().parent.parent
+# Emplacement de la base et des modèles. Déplaçable par variable
+# d'environnement, ce qui permet de pointer vers un volume du NAS ou de faire
+# tourner un essai sans toucher aux vraies données.
+DOSSIER_DONNEES = Path(os.environ.get("DOSSIER_DONNEES", RACINE / "donnees"))
+BASE_SQLITE = DOSSIER_DONNEES / "carburants.sqlite"
+DOSSIER_CACHE = DOSSIER_DONNEES / "cache"
+
+# --- Carburants suivis ----------------------------------------------------
+# Les noms sont ceux employés par le fichier officiel : on ne les invente pas.
+CARBURANTS = ["Gazole", "SP95", "SP98", "E10", "E85", "GPLc"]
+
+# Garde-fou : tout prix hors de cette fourchette est une erreur de saisie
+# d'une station (on en trouve régulièrement : des 0.001 ou des 9.999).
+PRIX_MINI_PLAUSIBLE = 0.30
+PRIX_MAXI_PLAUSIBLE = 5.00
+
+# --- Sources de données ---------------------------------------------------
+# Prix instantanés des ~10 000 stations (mis à jour en continu).
+URL_FLUX_INSTANTANE = (
+    "https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/"
+    "prix-des-carburants-en-france-flux-instantane-v2/records"
+)
+# Archive complète d'une année, au format ZIP contenant un gros XML.
+URL_ARCHIVE_ANNUELLE = "https://donnees.roulez-eco.fr/opendata/annee/{annee}"
+PREMIERE_ANNEE_DISPONIBLE = 2019
+
+# Séries économiques de la Réserve fédérale de Saint-Louis (FRED).
+# Téléchargeables en CSV sans clé d'API, ce qui évite toute inscription.
+URL_FRED_CSV = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={serie}"
+SERIE_BRENT = "DCOILBRENTEU"   # baril de Brent, en dollars
+SERIE_EURUSD = "DEXUSEU"       # combien de dollars pour 1 euro
+
+# Un baril « pétrolier » vaut exactement 42 gallons américains.
+LITRES_PAR_BARIL = 158.987294928
+
+# --- Modèle de prévision --------------------------------------------------
+# À combien de jours d'avance on cherche à prévoir.
+HORIZONS_JOURS = [7, 14, 30]
+# Fiabilité d'une moyenne quotidienne. Deux garde-fous complémentaires :
+#  - un plancher absolu, sous lequel l'échantillon est trop petit ;
+#  - une part minimale de la couverture habituelle du carburant, pour écarter
+#    les premiers jours d'une archive où l'on ne connaît encore qu'une fraction
+#    des stations. Le seuil est relatif à chaque carburant : le GPLc n'est
+#    vendu que dans ~1 700 stations, contre ~9 800 pour le gazole.
+NB_STATIONS_MINIMUM = 300
+PART_MINIMALE_COUVERTURE = 0.5

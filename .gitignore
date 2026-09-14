@@ -1,0 +1,16 @@
+# Environnement Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# Données produites par l'application : elles se reconstruisent toutes seules
+# et n'ont rien à faire dans l'historique du code.
+donnees/
+
+# Secrets : le fichier .env contient le mot de passe de la messagerie.
+# Seul .env.exemple, qui ne contient aucune valeur réelle, est versionné.
+.env
+
+# Divers
+.DS_Store
+*.log

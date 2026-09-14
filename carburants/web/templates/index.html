@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Suivi du prix des carburants</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#9981;</text></svg>">
+<script src="/statiques/chart.umd.min.js"></script>
+<style>
+/* Palette validée : les couleurs sont définies une fois comme variables, puis
+   employées par leur rôle. Le passage en thème sombre ne change que ce bloc. */
+:root {
+  color-scheme: light;
+  --plan:           #f9f9f7;
+  --surface:        #fcfcfb;
+  --encre:          #0b0b0b;
+  --encre-2:        #52514e;
+  --encre-3:        #898781;
+  --grille:         #e1e0d9;
+  --axe:            #c3c2b7;
+  --bordure:        rgba(11,11,11,0.10);
+  --serie-1:        #2a78d6;   /* prix à la pompe */
+  --serie-2:        #eb6834;   /* matière première */
+  --bien:           #0ca30c;
+  --alerte:         #fab219;
+  --critique:       #d03b3b;
+  --rayon: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --plan:    #0d0d0d;  --surface: #1a1a19;
+    --encre:   #ffffff;  --encre-2: #c3c2b7;  --encre-3: #898781;
+    --grille:  #2c2c2a;  --axe:     #383835;
+    --bordure: rgba(255,255,255,0.10);
+    --serie-1: #3987e5;  --serie-2: #d95926;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --plan:    #0d0d0d;  --surface: #1a1a19;
+  --encre:   #ffffff;  --encre-2: #c3c2b7;  --encre-3: #898781;
+  --grille:  #2c2c2a;  --axe:     #383835;
+  --bordure: rgba(255,255,255,0.10);
+  --serie-1: #3987e5;  --serie-2: #d95926;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--plan); color: var(--encre);
+  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.page { max-width: 1080px; margin: 0 auto; padding-block: 24px; padding-left: 16px; padding-right: 16px; }
+
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; justify-content: space-between; margin-bottom: 20px; }
+h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 15px; margin: 0 0 12px; color: var(--encre-2); font-weight: 600; }
+.sous-titre { color: var(--encre-3); font-size: 13px; margin: 2px 0 0; }
+
+.carte {
+  background: var(--surface); border: 1px solid var(--bordure);
+  border-radius: var(--rayon); padding: 18px; margin-bottom: 16px;
+}
+
+/* --- Sélecteur de carburant --- */
+.onglets { display: flex; flex-wrap: wrap; gap: 6px; }
+.onglet {
+  border: 1px solid var(--bordure); background: var(--surface); color: var(--encre-2);
+  border-radius: 999px; padding: 6px 14px; font-size: 13px; cursor: pointer;
+  font-family: inherit;
+}
+.onglet[aria-pressed="true"] { background: var(--serie-1); border-color: var(--serie-1); color: #fff; font-weight: 600; }
+
+/* --- Bandeau de recommandation --- */
+.recommandation { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; }
+.verdict { flex: 1 1 260px; }
+.verdict-titre { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; margin: 0 0 4px; }
+.verdict-detail { color: var(--encre-2); font-size: 14px; margin: 0; }
+.pastille { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 7px; vertical-align: middle; }
+.prix-actuel { text-align: right; flex: 0 0 auto; }
+.prix-actuel .valeur { font-size: 30px; font-weight: 650; letter-spacing: -0.02em; display: block; }
+.prix-actuel .legende { color: var(--encre-3); font-size: 12px; }
+
+/* --- Tuiles d'horizon --- */
+.horizons { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 18px; }
+.tuile { border: 1px solid var(--bordure); border-radius: 8px; padding: 12px 14px; }
+.tuile .entete { display: flex; justify-content: space-between; align-items: baseline; }
+.tuile .horizon { font-size: 12px; color: var(--encre-3); text-transform: uppercase; letter-spacing: 0.04em; }
+.tuile .sens { font-size: 17px; font-weight: 600; margin: 6px 0 2px; }
+.tuile .fiabilite { font-size: 12px; color: var(--encre-3); }
+.jauge { height: 4px; background: var(--grille); border-radius: 2px; overflow: hidden; margin-top: 9px; }
+.jauge > span { display: block; height: 100%; border-radius: 2px; }
+
+/* --- Graphique --- */
+.zone-graphe { position: relative; height: 340px; }
+@media (max-width: 640px) { .zone-graphe { height: 260px; } }
+.legende-graphe { display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 10px; font-size: 13px; color: var(--encre-2); }
+.legende-graphe span.marque { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 6px; }
+.plages { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+
+/* --- Tableaux --- */
+.defilement { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--grille); white-space: nowrap; }
+th { color: var(--encre-3); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+td.nombre, th.nombre { text-align: right; font-variant-numeric: tabular-nums; }
+tr.moins-cher td { font-weight: 650; }
+.etiquette { font-size: 11px; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--bordure); color: var(--encre-2); }
+
+/* --- Recherche --- */
+.recherche { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+input[type="search"], select {
+  font: inherit; padding: 8px 12px; border-radius: 8px;
+  border: 1px solid var(--bordure); background: var(--surface); color: var(--encre); min-width: 0;
+}
+input[type="search"] { flex: 1 1 220px; }
+button.action {
+  font: inherit; padding: 8px 16px; border-radius: 8px; border: none;
+  background: var(--serie-1); color: #fff; cursor: pointer; font-weight: 600;
+}
+button.lien { background: none; border: none; color: var(--serie-1); cursor: pointer; font: inherit; padding: 0; text-decoration: underline; }
+.propositions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+
+.encart {
+  font-size: 13px; color: var(--encre-2); border-left: 3px solid var(--axe);
+  padding: 2px 0 2px 14px; margin: 14px 0 0;
+}
+.vide { color: var(--encre-3); font-size: 14px; padding: 14px 0; }
+footer { color: var(--encre-3); font-size: 12px; margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--grille); }
+footer a { color: inherit; }
+.etat-alerte { color: var(--critique); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <div>
+      <h1>Suivi du prix des carburants</h1>
+      <p class="sous-titre" id="etat">Chargement…</p>
+    </div>
+    <div class="onglets" id="onglets-carburant" role="group" aria-label="Choix du carburant"></div>
+  </header>
+
+  <!-- Recommandation -->
+  <section class="carte">
+    <div class="recommandation">
+      <div class="verdict">
+        <p class="verdict-titre" id="verdict">…</p>
+        <p class="verdict-detail" id="verdict-detail"></p>
+      </div>
+      <div class="prix-actuel">
+        <span class="valeur" id="prix-actuel">—</span>
+        <span class="legende">moyenne nationale</span>
+      </div>
+    </div>
+    <div class="horizons" id="horizons"></div>
+    <p class="encart" id="note-methode"></p>
+  </section>
+
+  <!-- Graphique -->
+  <section class="carte">
+    <h2>Évolution du prix et de son coût de matière première</h2>
+    <div class="plages" id="plages"></div>
+    <p class="legende-graphe">
+      <span><span class="marque" style="background:var(--serie-1)"></span>Prix à la pompe</span>
+      <span><span class="marque" style="background:var(--serie-2)"></span>Matière première (pétrole brut)</span>
+    </p>
+    <div class="zone-graphe"><canvas id="graphe"></canvas></div>
+    <p class="encart">
+      L'espace entre les deux courbes représente les taxes, le raffinage, le transport
+      et les marges. Il constitue l'essentiel du prix payé : la matière première
+      compte pour environ un quart du montant affiché à la pompe.
+    </p>
+  </section>
+
+  <!-- Stations -->
+  <section class="carte">
+    <h2>Stations les moins chères près de chez vous</h2>
+    <div class="recherche">
+      <input type="search" id="commune" placeholder="Ville ou code postal (ex. Bordeaux, 33000)" autocomplete="off">
+      <select id="rayon" aria-label="Rayon de recherche">
+        <option value="5">5 km</option>
+        <option value="10">10 km</option>
+        <option value="15" selected>15 km</option>
+        <option value="30">30 km</option>
+        <option value="50">50 km</option>
+      </select>
+      <button class="action" id="chercher">Chercher</button>
+    </div>
+    <div class="propositions" id="propositions"></div>
+    <p id="resume-stations" class="encart" hidden></p>
+    <div class="defilement"><table id="tableau-stations"><tbody></tbody></table></div>
+    <p class="vide" id="stations-vide">Indiquez une commune pour comparer les stations alentour.</p>
+  </section>
+
+  <!-- Favoris -->
+  <section class="carte">
+    <h2>Mes stations suivies</h2>
+    <div class="defilement"><table id="tableau-favoris"><tbody></tbody></table></div>
+    <p class="vide" id="favoris-vide">Aucune station suivie. Ajoutez-en depuis la liste ci-dessus.</p>
+  </section>
+
+  <footer>
+    <p>
+      Prix issus du fichier officiel des prix des carburants (data.economie.gouv.fr,
+      ~9 800 stations de France métropolitaine). Cours du Brent et taux de change :
+      FRED, Banque fédérale de réserve de Saint-Louis.
+    </p>
+    <p id="avertissement"></p>
+  </footer>
+</div>
+
+<script>
+const CARBURANTS = {{ carburants|tojson }};
+let carburantActif = localStorage.getItem("carburant") || "Gazole";
+let joursAffiches = 365;
+let graphique = null;
+
+const encre = (role) => getComputedStyle(document.documentElement).getPropertyValue(role).trim();
+const euros = (v) => v == null ? "—" : v.toFixed(3).replace(".", ",") + " €";
+const MOIS = ["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
+/* Sur une longue période, le jour du mois n'apporte rien et encombre l'axe :
+   on n'affiche alors que le mois et l'année. */
+function dateCourte(iso, longuePeriode) {
+  const [a, m, j] = iso.split("-");
+  return longuePeriode ? `${MOIS[+m - 1]} ${a}` : `${+j} ${MOIS[+m - 1]}`;
+}
+function dateLongue(iso) {
+  const [a, m, j] = iso.split("-");
+  return `${+j} ${MOIS[+m - 1]} ${a}`;
+}
+const centimes = (v) => (v > 0 ? "+" : "") + v.toFixed(1).replace(".", ",") + " cts";
+
+/* ---------- Sélecteur de carburant ---------- */
+function construireOnglets() {
+  const zone = document.getElementById("onglets-carburant");
+  zone.innerHTML = "";
+  CARBURANTS.forEach((c) => {
+    const bouton = document.createElement("button");
+    bouton.className = "onglet";
+    bouton.textContent = c;
+    bouton.setAttribute("aria-pressed", c === carburantActif);
+    bouton.onclick = () => {
+      carburantActif = c;
+      localStorage.setItem("carburant", c);
+      construireOnglets();
+      toutRafraichir();
+    };
+    zone.appendChild(bouton);
+  });
+}
+
+/* ---------- Plages de temps ---------- */
+function construirePlages() {
+  const zone = document.getElementById("plages");
+  zone.innerHTML = "";
+  [[90, "3 mois"], [365, "1 an"], [1095, "3 ans"], [3000, "Tout"]].forEach(([j, nom]) => {
+    const bouton = document.createElement("button");
+    bouton.className = "onglet";
+    bouton.textContent = nom;
+    bouton.setAttribute("aria-pressed", j === joursAffiches);
+    bouton.onclick = () => { joursAffiches = j; construirePlages(); chargerGraphique(); };
+    zone.appendChild(bouton);
+  });
+}
+
+/* ---------- Prévisions ---------- */
+const COULEUR_CONSEIL = { faire_le_plein: "--critique", attendre: "--bien", indecis: "--alerte" };
+
+async function chargerPrevisions() {
+  const reponse = await fetch(`/api/previsions?carburant=${encodeURIComponent(carburantActif)}`);
+  const donnees = await reponse.json();
+  const valides = donnees.previsions.filter((p) => !p.erreur);
+  const zone = document.getElementById("horizons");
+  zone.innerHTML = "";
+
+  if (!valides.length) {
+    document.getElementById("verdict").textContent = "Modèle non entraîné";
+    document.getElementById("verdict-detail").textContent =
+      "Lancez « python scripts/entrainer.py » pour produire les prévisions.";
+    return;
+  }
+
+  // Le verdict affiché est celui de l'horizon 7 jours : c'est l'échéance qui
+  // correspond à la décision réelle (faire le plein cette semaine ou non).
+  const court = valides.find((p) => p.horizon === 7) || valides[0];
+  const couleur = encre(COULEUR_CONSEIL[court.conseil]);
+  document.getElementById("verdict").innerHTML =
+    `<span class="pastille" style="background:${couleur}"></span>${court.resume}`;
+  document.getElementById("verdict-detail").textContent =
+    `Sous 7 jours : ${court.probabilite_hausse.toFixed(0)} % de probabilité de hausse, ` +
+    `soit environ ${centimes(court.variation_probable_cts)} par litre.`;
+  document.getElementById("prix-actuel").textContent = euros(court.prix_actuel);
+
+  valides.forEach((p) => {
+    const tuile = document.createElement("div");
+    tuile.className = "tuile";
+    const couleurTuile = encre(COULEUR_CONSEIL[p.conseil]);
+    tuile.innerHTML = `
+      <div class="entete">
+        <span class="horizon">${p.horizon} jours</span>
+        <span class="etiquette">${p.justesse_pct.toFixed(0)} % de justesse</span>
+      </div>
+      <div class="sens"><span class="pastille" style="background:${couleurTuile}"></span>${
+        // À 51 % de probabilité, annoncer « hausse probable » serait présenter
+        // un tirage à pile ou face comme une prévision. On dit qu'on ne sait pas.
+        p.conseil === "indecis" ? "Trop incertain"
+          : (p.sens === "hausse" ? "Hausse probable" : "Baisse probable")}</div>
+      <div class="fiabilite">${p.conseil === "indecis" ? "Pas d'écart net attendu"
+        : centimes(p.variation_probable_cts) + " / L &nbsp;·&nbsp; vers " + euros(p.prix_prevu)}</div>
+      <div class="jauge"><span style="width:${p.probabilite_hausse}%;background:${couleurTuile}"></span></div>
+      <div class="fiabilite" style="margin-top:6px">${p.probabilite_hausse.toFixed(0)} % de probabilité de hausse</div>`;
+    zone.appendChild(tuile);
+  });
+
+  const methodes = [...new Set(valides.map((p) => p.methode))];
+  const nomMethode = methodes.length === 1
+    ? (methodes[0] === "modele" ? "un modèle statistique entraîné sur 2019-aujourd'hui"
+                                : "la règle de tendance, qui s'est révélée la plus fiable pour ce carburant")
+    : "un modèle statistique pour certains horizons, la règle de tendance pour les autres";
+  document.getElementById("note-methode").textContent =
+    `Prévision produite par ${nomMethode}. Le pourcentage de justesse est mesuré sur des ` +
+    `périodes que le modèle n'avait jamais vues — il annonce le sens de la variation, ` +
+    `jamais le prix exact.`;
+  document.getElementById("avertissement").textContent =
+    `Cet outil annonce une tendance, pas une certitude : à 7 jours il se trompe environ ` +
+    `une fois sur quatre, et davantage à 30 jours. Aucun modèle ne peut anticiper une ` +
+    `crise géopolitique ou un changement de fiscalité.`;
+}
+
+/* ---------- Graphique ---------- */
+async function chargerGraphique() {
+  const reponse = await fetch(`/api/historique?carburant=${encodeURIComponent(carburantActif)}&jours=${joursAffiches}`);
+  const donnees = await reponse.json();
+  const points = donnees.points;
+
+  const configuration = {
+    type: "line",
+    data: {
+      labels: points.map((p) => p.date),
+      // Conservées telles quelles pour les infobulles, qui affichent la date complète.
+      datasets: [
+        { label: "Prix à la pompe", data: points.map((p) => p.pompe),
+          borderColor: encre("--serie-1"), backgroundColor: encre("--serie-1"),
+          borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.1 },
+        { label: "Matière première", data: points.map((p) => p.matiere_premiere),
+          borderColor: encre("--serie-2"), backgroundColor: encre("--serie-2"),
+          borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.1 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      // Une seule échelle : les deux séries sont dans la même unité (€/L).
+      // Deux axes verticaux permettraient de faire dire n'importe quoi au graphique.
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: (elements) => dateLongue(points[elements[0].dataIndex].date),
+            label: (contexte) => `${contexte.dataset.label} : ${euros(contexte.parsed.y)} / L`,
+            afterBody: (elements) => {
+              const point = points[elements[0].dataIndex];
+              if (point.matiere_premiere == null) return "";
+              const ecart = point.pompe - point.matiere_premiere;
+              const part = (point.matiere_premiere / point.pompe) * 100;
+              return `\nTaxes et marges : ${euros(ecart)} / L\nMatière première : ${part.toFixed(0)} % du prix`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: { grid: { display: false },
+             ticks: { color: encre("--encre-3"), maxTicksLimit: 7, maxRotation: 0, autoSkipPadding: 14,
+                      font: { size: 11 },
+                      callback: function (valeur, index) {
+                        return dateCourte(this.getLabelForValue(valeur), joursAffiches > 400);
+                      } },
+             border: { color: encre("--axe") } },
+        y: { grid: { color: encre("--grille") }, border: { display: false },
+             ticks: { color: encre("--encre-3"), font: { size: 11 },
+                      callback: (v) => v.toFixed(2).replace(".", ",") + " €" } },
+      },
+    },
+  };
+
+  if (graphique) graphique.destroy();
+  graphique = new Chart(document.getElementById("graphe"), configuration);
+}
+
+/* ---------- Stations ---------- */
+let communeChoisie = null;
+
+async function proposerCommunes() {
+  const terme = document.getElementById("commune").value.trim();
+  const zone = document.getElementById("propositions");
+  if (terme.length < 2) { zone.innerHTML = ""; return; }
+  const reponse = await fetch(`/api/communes?q=${encodeURIComponent(terme)}`);
+  const donnees = await reponse.json();
+  zone.innerHTML = "";
+  donnees.resultats.slice(0, 6).forEach((c) => {
+    const bouton = document.createElement("button");
+    bouton.className = "onglet";
+    bouton.textContent = `${c.ville} (${c.code_postal})`;
+    bouton.onclick = () => { communeChoisie = c; zone.innerHTML = ""; document.getElementById("commune").value = c.ville; chargerStations(); };
+    zone.appendChild(bouton);
+  });
+}
+
+async function chargerStations() {
+  if (!communeChoisie) return;
+  const rayon = document.getElementById("rayon").value;
+  const reponse = await fetch(`/api/stations?lat=${communeChoisie.lat}&lon=${communeChoisie.lon}`
+    + `&carburant=${encodeURIComponent(carburantActif)}&rayon=${rayon}`);
+  const donnees = await reponse.json();
+  const corps = document.querySelector("#tableau-stations tbody");
+  const vide = document.getElementById("stations-vide");
+  const resume = document.getElementById("resume-stations");
+  corps.innerHTML = "";
+
+  if (!donnees.resultats.length) {
+    vide.hidden = false; resume.hidden = true;
+    vide.textContent = `Aucune station ne propose du ${carburantActif} dans ce rayon.`;
+    return;
+  }
+  vide.hidden = true; resume.hidden = false;
+  const s = donnees.statistiques;
+  resume.textContent = `${s.nb} stations trouvées. Entre la moins chère et la plus chère : `
+    + `${s.ecart_cts.toFixed(1).replace(".", ",")} centimes par litre, `
+    + `soit ${s.economie_plein_50l.toFixed(2).replace(".", ",")} € sur un plein de 50 litres.`;
+
+  corps.innerHTML = `<tr><th class="nombre">Prix</th><th>Station</th><th>Commune</th>
+                     <th class="nombre">Distance</th><th></th></tr>`;
+  donnees.resultats.forEach((station, rang) => {
+    const ligne = document.createElement("tr");
+    if (rang === 0) ligne.className = "moins-cher";
+    ligne.innerHTML = `
+      <td class="nombre">${euros(station.prix)}</td>
+      <td>${station.adresse || "—"}</td>
+      <td>${station.ville} <span class="etiquette">${station.code_postal}</span></td>
+      <td class="nombre">${station.distance_km.toFixed(1).replace(".", ",")} km</td>
+      <td><button class="lien">${station.favori ? "Ne plus suivre" : "Suivre"}</button></td>`;
+    ligne.querySelector("button").onclick = async () => {
+      await fetch(`/api/favoris/${station.id}`, { method: station.favori ? "DELETE" : "POST" });
+      chargerStations(); chargerFavoris();
+    };
+    corps.appendChild(ligne);
+  });
+}
+
+/* ---------- Favoris ---------- */
+async function chargerFavoris() {
+  const reponse = await fetch(`/api/favoris?carburant=${encodeURIComponent(carburantActif)}`);
+  const donnees = await reponse.json();
+  const corps = document.querySelector("#tableau-favoris tbody");
+  const vide = document.getElementById("favoris-vide");
+  corps.innerHTML = "";
+  if (!donnees.resultats.length) { vide.hidden = false; return; }
+  vide.hidden = true;
+  corps.innerHTML = `<tr><th class="nombre">Prix</th><th>Station</th><th>Commune</th>
+                     <th class="nombre">7 jours</th><th></th></tr>`;
+  donnees.resultats.forEach((f) => {
+    const ligne = document.createElement("tr");
+    const variation = f.variation_cts;
+    const couleur = variation == null ? "--encre-3" : (variation > 0 ? "--critique" : (variation < 0 ? "--bien" : "--encre-3"));
+    ligne.innerHTML = `
+      <td class="nombre">${euros(f.prix_actuel)}</td>
+      <td>${f.adresse || "—"}</td>
+      <td>${f.ville} <span class="etiquette">${f.code_postal}</span></td>
+      <td class="nombre" style="color:${encre(couleur)}">${variation == null ? "—" : centimes(variation)}</td>
+      <td><button class="lien">Retirer</button></td>`;
+    ligne.querySelector("button").onclick = async () => {
+      await fetch(`/api/favoris/${f.station_id}`, { method: "DELETE" });
+      chargerFavoris(); chargerStations();
+    };
+    corps.appendChild(ligne);
+  });
+}
+
+/* ---------- État des données ---------- */
+async function chargerEtat() {
+  const donnees = await (await fetch("/api/etat")).json();
+  const zone = document.getElementById("etat");
+  const retard = donnees.retard_jours;
+  if (retard == null) {
+    zone.textContent = "Aucune donnée collectée pour l'instant.";
+    zone.className = "sous-titre etat-alerte";
+    return;
+  }
+  const quand = retard === 0 ? "aujourd'hui" : (retard === 1 ? "hier" : `il y a ${retard} jours`);
+  zone.textContent = `${donnees.nb_stations.toLocaleString("fr-FR")} stations · relevé ${quand}`;
+  // Au-delà de deux jours, la collecte automatique est probablement en panne :
+  // mieux vaut le signaler que d'afficher des chiffres périmés sans le dire.
+  zone.className = retard > 2 ? "sous-titre etat-alerte" : "sous-titre";
+  if (retard > 2) zone.textContent += " — collecte peut-être interrompue";
+}
+
+/* ---------- Démarrage ---------- */
+function toutRafraichir() {
+  chargerPrevisions(); chargerGraphique(); chargerStations(); chargerFavoris();
+}
+let minuterie;
+document.getElementById("commune").addEventListener("input", () => {
+  clearTimeout(minuterie); minuterie = setTimeout(proposerCommunes, 220);
+});
+document.getElementById("chercher").onclick = () => { proposerCommunes(); };
+document.getElementById("rayon").onchange = chargerStations;
+construireOnglets(); construirePlages(); chargerEtat(); toutRafraichir();
+</script>
+</body>
+</html>
