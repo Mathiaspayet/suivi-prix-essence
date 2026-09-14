@@ -1,0 +1,25 @@
+# Lancement sur un NAS :   docker compose up -d
+# Puis rendez-vous sur     http://adresse-du-nas:8000
+
+services:
+  carburants:
+    build: .
+    container_name: suivi-carburants
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # La base de données et les modèles restent sur le NAS, pas dans le
+      # conteneur : une mise à jour de l'image ne détruit donc aucune donnée.
+      - ./donnees:/application/donnees
+    env_file:
+      # Facultatif. Créez ce fichier à partir de .env.exemple pour les alertes.
+      - path: .env
+        required: false
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/etat')"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 2m
