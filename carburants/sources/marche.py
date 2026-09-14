@@ -74,11 +74,29 @@ def brent_en_euros_par_litre(brent_usd, taux_eurusd):
     return brent_usd / taux_eurusd / config.LITRES_PAR_BARIL
 
 
+def recuperer_raffines(depuis=None):
+    """Cotations des carburants déjà raffinés, en dollars par gallon.
+
+    C'est ce qu'achète réellement une station : le brut ne se verse pas dans un
+    réservoir. Ces prix ont leur propre dynamique — capacités de raffinage,
+    saisonnalité, arbitrages entre continents — que le seul cours du baril ne
+    traduit pas.
+    """
+    valeurs = []
+    for serie in (config.SERIE_GAZOLE_RAFFINE, config.SERIE_ESSENCE_RAFFINEE):
+        for date, valeur in _telecharger_serie(serie):
+            if depuis and date < depuis:
+                continue
+            valeurs.append((date, serie, valeur))
+    return valeurs
+
+
 def rafraichir(depuis=None, journal=print):
-    """Télécharge les deux séries et les enregistre en base."""
+    """Télécharge toutes les séries de marché et les enregistre en base."""
     from carburants import base
 
-    lignes = recuperer_brent(depuis) + recuperer_eurusd(depuis)
+    lignes = (recuperer_brent(depuis) + recuperer_eurusd(depuis)
+              + recuperer_raffines(depuis))
     base.enregistrer_marche(lignes)
     journal(f"  marché : {len(lignes)} valeurs enregistrées")
     return len(lignes)

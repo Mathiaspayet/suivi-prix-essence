@@ -51,6 +51,29 @@ URL_FRED_CSV = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={serie}"
 SERIE_BRENT = "DCOILBRENTEU"   # baril de Brent, en dollars
 SERIE_EURUSD = "DEXUSEU"       # combien de dollars pour 1 euro
 
+# Produits déjà raffinés, cotés au port de New York. Ce ne sont pas des
+# curiosités américaines : les marchés du raffiné sont mondiaux et étroitement
+# liés, et ces deux séries sont les seules cotations quotidiennes gratuites
+# disponibles. Le pétrole brut ne se met pas dans un réservoir ; une station
+# achète du gazole ou de l'essence déjà raffinés, dont le prix a sa propre
+# dynamique — pénuries de raffinage, saisonnalité, arbitrages. Les substituer
+# au brut fait gagner environ deux points de justesse.
+SERIE_GAZOLE_RAFFINE = "DHOILNYH"    # fioul domestique, très proche du gazole
+SERIE_ESSENCE_RAFFINEE = "DGASNYH"   # essence conventionnelle
+
+# À quel produit de gros rattacher chaque carburant de la pompe.
+# L'E85 et le GPLc n'y figurent pas : le premier est de l'éthanol, le second du
+# propane, et ni l'un ni l'autre ne suit le marché du pétrole.
+RAFFINE_PAR_CARBURANT = {
+    "Gazole": SERIE_GAZOLE_RAFFINE,
+    "SP95": SERIE_ESSENCE_RAFFINEE,
+    "SP98": SERIE_ESSENCE_RAFFINEE,
+    "E10": SERIE_ESSENCE_RAFFINEE,
+}
+
+# Ces cotations sont en dollars par gallon américain.
+LITRES_PAR_GALLON = 3.785411784
+
 # Un baril « pétrolier » vaut exactement 42 gallons américains.
 LITRES_PAR_BARIL = 158.987294928
 

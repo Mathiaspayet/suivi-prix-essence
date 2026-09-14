@@ -64,6 +64,19 @@ def charger_series(carburant):
     tableau["brent_eur_l"] = (
         tableau["brent_usd"] / tableau["eurusd"] / config.LITRES_PAR_BARIL
     )
+
+    # Le carburant de gros correspondant, quand il en existe un. C'est lui que
+    # la station achète réellement, et il explique mieux le prix affiché que le
+    # baril de brut. L'E85 et le GPLc n'en ont pas : ils relèvent d'autres
+    # marchés que le pétrole.
+    serie_raffinee = config.RAFFINE_PAR_CARBURANT.get(carburant)
+    if serie_raffinee and serie_raffinee in marche.columns:
+        cotation = marche[serie_raffinee].reindex(calendrier).ffill()
+        tableau["raffine_eur_l"] = (
+            cotation / tableau["eurusd"] / config.LITRES_PAR_GALLON
+        )
+    else:
+        tableau["raffine_eur_l"] = np.nan
     return tableau
 
 
@@ -105,6 +118,19 @@ def construire(carburant, horizon):
     # monté de 10 centimes et la pompe de 2, il reste 8 centimes « en attente ».
     t["rattrapage_en_attente"] = t["var_brent_30j"] - t["var_pompe_30j"]
 
+    # --- Le carburant de gros ------------------------------------------------
+    # Mesuré : ses variations expliquent mieux le prix à la pompe que celles du
+    # baril (corrélation 0,65 contre 0,62 sur le gazole), et l'ajouter fait
+    # gagner environ deux points de justesse. Faute de cotation pour un
+    # carburant, les colonnes restent vides et le modèle s'en passe.
+    if t["raffine_eur_l"].notna().any():
+        for jours in (7, 14, 30):
+            t[f"var_raffine_{jours}j"] = t["raffine_eur_l"].diff(jours)
+    else:
+        for jours in (7, 14, 30):
+            t[f"var_raffine_{jours}j"] = 0.0
+        t["raffine_eur_l"] = 0.0
+
     # Agitation du marché : une forte volatilité rend toute prévision plus fragile.
     t["volatilite_brent_30j"] = t["brent_eur_l"].diff().rolling(30).std()
 
@@ -134,6 +160,8 @@ COLONNES_CARACTERISTIQUES = [
     "ecart_normalise",
     "var_brent_7j", "var_brent_14j", "var_brent_30j", "var_brent_60j",
     "var_pompe_7j", "var_pompe_14j", "var_pompe_30j", "var_pompe_60j",
+    "raffine_eur_l",
+    "var_raffine_7j", "var_raffine_14j", "var_raffine_30j",
     "rattrapage_en_attente",
     "volatilite_brent_30j",
     "var_eurusd_30j",

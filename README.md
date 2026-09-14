@@ -32,16 +32,33 @@ Justesse mesurée sur des périodes que le modèle n'avait jamais vues
 
 | Carburant | à 7 jours | à 14 jours | à 30 jours | Méthode retenue |
 |-----------|-----------|------------|------------|-----------------|
-| Gazole    | 74 %      | 68 %       | 65 %       | tendance, puis modèle à 30 j |
-| SP95      | 78 %      | 72 %       | 62 %       | modèle |
-| SP98      | 77 %      | 71 %       | 63 %       | modèle |
-| E10       | 73 %      | 68 %       | 61 %       | modèle |
+| Gazole    | 75 %      | 68 %       | 64 %       | modèle (tendance à 14 j) |
+| SP95      | **82 %**  | 74 %       | 61 %       | modèle |
+| SP98      | 80 %      | 74 %       | 63 %       | modèle |
+| E10       | 77 %      | 71 %       | 62 %       | modèle |
 | E85       | 76 %      | 82 %       | 69 %       | tendance |
 | GPLc      | 74 %      | 78 %       | 67 %       | tendance |
 
-Autrement dit : **à sept jours, l'outil se trompe environ une fois sur quatre.**
+Autrement dit : **à sept jours, l'outil se trompe une fois sur quatre à une fois sur cinq.**
 À trente jours, une fois sur trois. Et il ne verra jamais venir une crise
 géopolitique ni un changement de fiscalité.
+
+### Ce n'est pas le baril qu'il faut regarder
+
+Une station n'achète pas de pétrole brut : elle achète du gazole ou de
+l'essence **déjà raffinés**, dont le prix de gros a sa propre dynamique —
+capacités de raffinage, saisonnalité, arbitrages entre continents. Le baril
+n'en est qu'une composante.
+
+Substituer ces cotations de gros au seul cours du brut fait gagner deux à
+quatre points de justesse sur les essences : le SP95 à sept jours passe de
+78 à 82 %. C'est le gain le plus net obtenu sur ce projet, et il ne vient pas
+d'un algorithme plus savant mais d'une donnée mieux choisie.
+
+Un indice de peur des marchés (l'OVX, volatilité du pétrole) a été testé dans
+la foulée : il n'apporte rien du tout — corrélation de 0,03 avec les
+variations à venir — et dégrade même légèrement les résultats. Il a donc été
+écarté.
 
 ### Pourquoi deux méthodes selon les carburants
 
