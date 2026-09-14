@@ -182,7 +182,7 @@ footer a { color: inherit; }
       <select id="rayon" aria-label="Rayon de recherche">
         <option value="5">5 km</option>
         <option value="10">10 km</option>
-        <option value="15" selected>15 km</option>
+        <option value="15">15 km</option>
         <option value="30">30 km</option>
         <option value="50">50 km</option>
       </select>
@@ -403,7 +403,13 @@ async function proposerCommunes() {
     const bouton = document.createElement("button");
     bouton.className = "onglet";
     bouton.textContent = `${c.ville} (${c.code_postal})`;
-    bouton.onclick = () => { communeChoisie = c; zone.innerHTML = ""; document.getElementById("commune").value = c.ville; chargerStations(); };
+    bouton.onclick = () => {
+      communeChoisie = c;
+      localStorage.setItem("commune", JSON.stringify(c));
+      zone.innerHTML = "";
+      document.getElementById("commune").value = c.ville;
+      chargerStations();
+    };
     zone.appendChild(bouton);
   });
 }
@@ -505,8 +511,32 @@ document.getElementById("commune").addEventListener("input", () => {
   clearTimeout(minuterie); minuterie = setTimeout(proposerCommunes, 220);
 });
 document.getElementById("chercher").onclick = () => { proposerCommunes(); };
-document.getElementById("rayon").onchange = chargerStations;
-construireOnglets(); construirePlages(); chargerEtat(); toutRafraichir();
+document.getElementById("rayon").onchange = () => {
+  localStorage.setItem("rayon", document.getElementById("rayon").value);
+  chargerStations();
+};
+/* Au chargement, on ouvre directement sur la commune configurée : l'utilisateur
+   voit ses stations sans avoir à taper quoi que ce soit. Son dernier choix,
+   mémorisé dans le navigateur, a la priorité sur la valeur par défaut. */
+async function appliquerReglages() {
+  const reglages = await (await fetch("/api/reglages")).json();
+  const memorisee = localStorage.getItem("commune");
+  document.getElementById("rayon").value =
+    localStorage.getItem("rayon") || reglages.rayon_km;
+  if (memorisee) {
+    communeChoisie = JSON.parse(memorisee);
+  } else if (reglages.commune) {
+    communeChoisie = reglages.commune;
+  }
+  if (communeChoisie) {
+    document.getElementById("commune").value = communeChoisie.ville;
+    chargerStations();
+  }
+}
+
+construireOnglets(); construirePlages(); chargerEtat();
+chargerPrevisions(); chargerGraphique(); chargerFavoris();
+appliquerReglages();
 </script>
 </body>
 </html>

@@ -15,6 +15,17 @@ DOSSIER_DONNEES = Path(os.environ.get("DOSSIER_DONNEES", RACINE / "donnees"))
 BASE_SQLITE = DOSSIER_DONNEES / "carburants.sqlite"
 DOSSIER_CACHE = DOSSIER_DONNEES / "cache"
 
+# --- Préférences d'affichage ----------------------------------------------
+# Commune ouverte par défaut, pour ne pas avoir à la retaper à chaque visite.
+COMMUNE_PAR_DEFAUT = os.environ.get("COMMUNE_PAR_DEFAUT", "Mimizan")
+
+# Rayon de recherche par défaut, en kilomètres. Trente convient mieux qu'une
+# valeur plus courte en zone rurale : autour de Mimizan, passer de 15 à 30 km
+# fait passer le choix de trois à treize stations, et l'écart entre la moins
+# chère et la plus chère de 2 à 14 € par plein de 50 litres. Le voisinage
+# immédiat cache souvent l'essentiel de l'économie possible.
+RAYON_PAR_DEFAUT_KM = int(os.environ.get("RAYON_PAR_DEFAUT_KM", "30"))
+
 # --- Carburants suivis ----------------------------------------------------
 # Les noms sont ceux employés par le fichier officiel : on ne les invente pas.
 CARBURANTS = ["Gazole", "SP95", "SP98", "E10", "E85", "GPLc"]

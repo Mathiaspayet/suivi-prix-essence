@@ -231,6 +231,21 @@ def api_retirer_favori(station_id: str):
     return {"ok": True}
 
 
+@application.get("/api/reglages")
+def api_reglages():
+    """Préférences d'ouverture : commune et rayon proposés d'emblée.
+
+    La commune est résolue en coordonnées côté serveur, pour que la page
+    affiche des stations dès son ouverture sans aucune saisie.
+    """
+    proposees = stations.chercher_commune(config.COMMUNE_PAR_DEFAUT)
+    return {
+        "commune": proposees[0] if proposees else None,
+        "rayon_km": config.RAYON_PAR_DEFAUT_KM,
+        "carburants": config.CARBURANTS,
+    }
+
+
 @application.get("/api/etat")
 def api_etat():
     """État des données : sert à signaler une collecte en panne.
