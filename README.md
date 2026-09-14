@@ -58,33 +58,55 @@ d'accueil indique toujours laquelle a été employée.
 
 ---
 
-## Installation sur un NAS
+## Installation sur un NAS Synology
 
-Il faut Docker, disponible sur la plupart des NAS Synology et QNAP.
+L'image est compilée automatiquement par GitHub à chaque modification du code,
+puis publiée sur `ghcr.io`. Le NAS se contente de la récupérer : il ne compile
+rien, ce qui lui épargne un travail dont il est bien incapable.
 
-```bash
-git clone https://github.com/Mathiaspayet/suivi-prix-essence.git
-cd suivi-prix-essence
-docker compose up -d
-```
+### 1. Rendre l'image accessible (une seule fois)
 
-Puis ouvrez `http://adresse-de-votre-nas:8000`.
+Après la toute première compilation, l'image publiée est **privée** par défaut
+et le NAS ne pourra pas la télécharger. Il faut la rendre publique :
+
+1. `github.com/Mathiaspayet?tab=packages` → paquet **suivi-prix-essence**
+2. *Package settings* → *Change visibility* → **Public**
+
+### 2. Créer le projet dans Container Manager
+
+**Container Manager** → **Projet** → **Créer** → *Créer un fichier
+docker-compose.yml*, puis coller le contenu de
+[`docker-compose.synology.yml`](docker-compose.synology.yml).
+
+L'application est ensuite accessible sur `http://adresse-du-nas:8100`.
+
+> Le port 8100 est celui du NAS ; le conteneur, lui, écoute toujours en 8000.
+> En cas de conflit, seul le nombre de **gauche** est à changer dans la ligne
+> `- "8100:8000"`.
 
 Au premier démarrage, l'application constitue seule son historique : environ
 210 Mo d'archives à télécharger et à analyser, soit **cinq à dix minutes**. La
 page reste accessible pendant ce temps, simplement dépeuplée. Ensuite, elle se
 met à jour toute seule chaque jour à 11 h.
 
+### 3. Mises à jour automatiques
+
+Le conteneur porte l'étiquette
+`com.centurylinklabs.watchtower.scope=gestion-locative`, qui le place sous la
+surveillance du Watchtower déjà en service sur le NAS. Aucun second Watchtower
+n'est à lancer — et il ne le faudrait pas, le nom de conteneur entrerait en
+conflit.
+
+Le cycle complet, sans intervention : modification du code → push sur `main` →
+GitHub compile et publie → Watchtower le remarque dans les cinq minutes →
+le conteneur redémarre sur la nouvelle version. Les données, logées dans un
+volume nommé, traversent l'opération intactes.
+
 ### Alertes par courriel (facultatif)
 
-```bash
-cp .env.exemple .env
-nano .env          # renseignez vos identifiants de messagerie
-docker compose up -d --force-recreate
-```
-
-Avec Gmail, il faut créer un **mot de passe d'application** dans les réglages de
-sécurité du compte Google : le mot de passe habituel est refusé par les
+Décommentez les six lignes `SMTP_*` du fichier compose et complétez-les.
+Avec Gmail, il faut créer un **mot de passe d'application** dans les réglages
+de sécurité du compte Google : le mot de passe habituel est refusé par les
 programmes.
 
 Trois événements déclenchent un message, et uniquement au moment où la situation
@@ -105,7 +127,7 @@ pip install -r requirements.txt
 
 python scripts/initialiser.py      # une seule fois : constitue l'historique
 python scripts/entrainer.py        # entraîne les modèles
-uvicorn carburants.web.app:application --host 0.0.0.0 --port 8000
+uvicorn carburants.web.app:application --host 0.0.0.0 --port 8100
 ```
 
 ---

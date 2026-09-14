@@ -1,0 +1,67 @@
+# ============================================================
+# Docker Compose — Déploiement sur NAS Synology
+# ============================================================
+#
+# À coller directement dans Container Manager :
+#   Projet  ->  Créer  ->  « Créer un fichier docker-compose.yml »
+#
+# L'image est récupérée depuis ghcr.io, pas compilée sur le NAS :
+# la compilation a lieu sur GitHub à chaque push, et Watchtower
+# redéploie ensuite tout seul.
+#
+# Port 8100 côté NAS, car le 8000 est déjà pris par gestion-locative.
+# ============================================================
+
+services:
+  suivi-carburants:
+    image: ghcr.io/mathiaspayet/suivi-prix-essence:latest
+    container_name: suivi_carburants
+    restart: unless-stopped
+    ports:
+      # <port du NAS>:<port interne au conteneur>
+      # Seul le nombre de gauche est à changer en cas de conflit.
+      - "8100:8000"
+    environment:
+      TZ: Europe/Paris
+      FUSEAU: Europe/Paris
+      # Heure de la collecte quotidienne (0-23).
+      HEURE_COLLECTE: "11"
+      # Commune et rayon proposés à l'ouverture de la page.
+      COMMUNE_PAR_DEFAUT: Mimizan
+      RAYON_PAR_DEFAUT_KM: "30"
+      # --- Alertes par courriel (facultatif) ---
+      # Retirez le « # » des six lignes suivantes et complétez-les.
+      # Avec Gmail, il faut un mot de passe d'application, créé dans les
+      # réglages de sécurité du compte Google : le mot de passe habituel
+      # est refusé par les programmes.
+      # SMTP_HOTE: smtp.gmail.com
+      # SMTP_PORT: "587"
+      # SMTP_UTILISATEUR: mathias.payet@gmail.com
+      # SMTP_MOTDEPASSE: xxxx xxxx xxxx xxxx
+      # ALERTE_DESTINATAIRE: mathias.payet@gmail.com
+      # ALERTE_CARBURANT: Gazole
+    volumes:
+      # Base de données et modèles entraînés. Sur un volume nommé, ils
+      # survivent aux mises à jour de l'image : sans cela, le NAS
+      # retéléchargerait les 210 Mo d'historique à chaque redéploiement.
+      - carburants-donnees:/application/donnees
+    labels:
+      # Cette valeur doit correspondre au WATCHTOWER_SCOPE du Watchtower
+      # qui tourne déjà sur le NAS (celui du projet gestion-locative).
+      # C'est ce qui le fait surveiller aussi ce conteneur — sans qu'il
+      # soit besoin d'en lancer un second.
+      - "com.centurylinklabs.watchtower.scope=gestion-locative"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/etat')"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      # La première collecte dure cinq à dix minutes : sans ce délai de
+      # grâce, le NAS jugerait le conteneur en panne et le redémarrerait
+      # en boucle avant qu'il ait fini.
+      start_period: 15m
+
+volumes:
+  carburants-donnees:
+    driver: local

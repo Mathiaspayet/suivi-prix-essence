@@ -1,0 +1,63 @@
+# ============================================================
+# GitHub Actions — Compilation et publication de l'image Docker
+# ============================================================
+# Déclenché à chaque push sur main. L'image est publiée sur le registre
+# de conteneurs de GitHub (ghcr.io), où Watchtower, sur le NAS, vient
+# la chercher pour redéployer tout seul.
+#
+# Note : ce dépôt utilise « main » comme branche principale, là où
+# logiciel-gestion-locative utilise « master ». Le déclencheur doit
+# correspondre à la branche réelle, sans quoi rien ne se compile jamais.
+# ============================================================
+
+name: Compilation et publication
+
+on:
+  push:
+    branches: [main]
+  # Permet aussi de relancer une compilation à la main depuis l'onglet
+  # « Actions » de GitHub, sans avoir à pousser un commit pour rien.
+  workflow_dispatch:
+
+env:
+  REGISTRE: ghcr.io
+  NOM_IMAGE: ${{ github.repository }}
+
+jobs:
+  compiler-et-publier:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Récupération du code
+        uses: actions/checkout@v4
+
+      - name: Connexion au registre GitHub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRE }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Préparation des étiquettes
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRE }}/${{ env.NOM_IMAGE }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=
+
+      - name: Compilation et publication
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Le cache évite de réinstaller pandas et scikit-learn à chaque
+          # compilation : sans lui, chaque publication prendrait plusieurs minutes.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

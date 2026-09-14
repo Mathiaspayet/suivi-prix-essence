@@ -1,5 +1,8 @@
-# Lancement sur un NAS :   docker compose up -d
-# Puis rendez-vous sur     http://adresse-du-nas:8000
+# Développement local :  docker compose up -d --build
+# Puis rendez-vous sur    http://localhost:8100
+#
+# Pour le NAS, utilisez plutôt docker-compose.synology.yml, qui récupère
+# l'image déjà compilée sur ghcr.io au lieu de la construire sur place.
 
 services:
   carburants:
@@ -7,7 +10,9 @@ services:
     container_name: suivi-carburants
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      # Le 8000 est déjà occupé par gestion-locative : on expose sur 8100.
+      # Seul le nombre de gauche change ; le conteneur écoute toujours en 8000.
+      - "8100:8000"
     volumes:
       # La base de données et les modèles restent sur le NAS, pas dans le
       # conteneur : une mise à jour de l'image ne détruit donc aucune donnée.
@@ -22,4 +27,5 @@ services:
       interval: 5m
       timeout: 10s
       retries: 3
-      start_period: 2m
+      # La première collecte dure cinq à dix minutes.
+      start_period: 15m
