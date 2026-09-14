@@ -291,9 +291,34 @@ async function chargerPrevisions() {
   zone.innerHTML = "";
 
   if (!valides.length) {
-    document.getElementById("verdict").textContent = "Modèle non entraîné";
-    document.getElementById("verdict-detail").textContent =
-      "Lancez « python scripts/entrainer.py » pour produire les prévisions.";
+    // Aucune prévision disponible. Plutôt qu'un message d'erreur sec, on dit
+    // ce qui se passe réellement — dans la quasi-totalité des cas, un
+    // entraînement en cours après une mise à jour.
+    const etat = await (await fetch("/api/etat")).json();
+    document.getElementById("prix-actuel").textContent = "—";
+    if (etat.collecte_en_cours) {
+      document.getElementById("verdict").innerHTML =
+        `<span class="pastille" style="background:${encre("--alerte")}"></span>Entraînement en cours`;
+      document.getElementById("verdict-detail").textContent =
+        (etat.motif_collecte ? etat.motif_collecte.charAt(0).toUpperCase() + etat.motif_collecte.slice(1) + ". " : "")
+        + "Comptez quelques minutes. La page se rafraîchira toute seule.";
+      // On repasse voir régulièrement : inutile de demander un rechargement.
+      clearTimeout(minuterieEntrainement);
+      minuterieEntrainement = setTimeout(() => { chargerPrevisions(); chargerEtat(); }, 20000);
+    } else if (etat.modeles_manquants) {
+      document.getElementById("verdict").innerHTML =
+        `<span class="pastille" style="background:${encre("--alerte")}"></span>Modèles à reconstruire`;
+      document.getElementById("verdict-detail").textContent =
+        `${etat.modeles_manquants} modèles sur ${etat.modeles_attendus} sont absents ou `
+        + `devenus incompatibles après une mise à jour. Ils seront reconstruits à la `
+        + `prochaine collecte ; redémarrez le conteneur pour ne pas attendre.`;
+    } else {
+      document.getElementById("verdict").textContent = "Prévisions indisponibles";
+      document.getElementById("verdict-detail").textContent =
+        "Aucun modèle n'a pu être chargé. Consultez le journal du conteneur.";
+    }
+    document.getElementById("horizons").innerHTML = "";
+    document.getElementById("note-methode").textContent = "";
     return;
   }
 
@@ -357,6 +382,7 @@ async function chargerPrevisions() {
 }
 
 /* ---------- Graphique ---------- */
+let minuterieEntrainement;
 let vueGraphique = localStorage.getItem("vue") || "reels";
 
 /* Les deux lectures possibles des mêmes données.
@@ -654,6 +680,9 @@ async function chargerEtat() {
   }
   const quand = retard === 0 ? "aujourd'hui" : (retard === 1 ? "hier" : `il y a ${retard} jours`);
   zone.textContent = `${donnees.nb_stations.toLocaleString("fr-FR")} stations · relevé ${quand}`;
+  if (donnees.collecte_en_cours) {
+    zone.textContent += " · mise à jour en cours…";
+  }
   // Au-delà de deux jours, la collecte automatique est probablement en panne :
   // mieux vaut le signaler que d'afficher des chiffres périmés sans le dire.
   zone.className = retard > 2 ? "sous-titre etat-alerte" : "sous-titre";

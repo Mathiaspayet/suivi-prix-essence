@@ -31,6 +31,11 @@ HEURE_COLLECTE = int(os.environ.get("HEURE_COLLECTE", "11"))
 planificateur = BackgroundScheduler(timezone=os.environ.get("FUSEAU", "Europe/Paris"))
 
 
+# Renseigné pendant une collecte pour que la page puisse dire « patientez »
+# plutôt que de laisser croire à une panne.
+etat_collecte = {"en_cours": False, "motif": None, "depuis": None}
+
+
 def _collecte_quotidienne():
     """Lancée chaque jour par le planificateur intégré.
 
@@ -38,7 +43,14 @@ def _collecte_quotidienne():
     planifiée sur le NAS : un seul conteneur suffit, et il se suffit à lui-même.
     """
     from scripts.mettre_a_jour import mettre_a_jour
-    mettre_a_jour()
+
+    etat_collecte["en_cours"] = True
+    etat_collecte["depuis"] = dt.datetime.now().isoformat(timespec="seconds")
+    try:
+        mettre_a_jour()
+    finally:
+        etat_collecte["en_cours"] = False
+        etat_collecte["motif"] = None
 
 
 @asynccontextmanager
@@ -56,11 +68,28 @@ async def cycle_de_vie(app):
     )
     planificateur.start()
 
-    # Au tout premier démarrage la base est vide : on collecte immédiatement,
-    # en arrière-plan, pour que la page ne s'ouvre pas sur un écran désert.
+    # Deux situations imposent de travailler sans attendre l'heure dite.
+    #
+    # La base vide, d'abord : c'est le tout premier démarrage, et la page
+    # s'ouvrirait sur un écran désert.
+    #
+    # Les modèles manquants ensuite, cas plus sournois. Une mise à jour de
+    # l'image peut changer le jeu de variables et rendre inexploitables les
+    # modèles conservés dans le volume. La base, elle, reste bien remplie :
+    # s'en tenir à ce seul critère laisserait l'application afficher
+    # « modèle non entraîné » jusqu'à la collecte du lendemain.
+    from carburants.modele import entrainement
+
     with base.connexion() as cx:
-        vide = cx.execute("SELECT COUNT(*) FROM prix_station").fetchone()[0] == 0
-    if vide:
+        base_vide = cx.execute("SELECT COUNT(*) FROM prix_station").fetchone()[0] == 0
+    manquants = entrainement.modeles_manquants()
+
+    if base_vide or manquants:
+        etat_collecte["en_cours"] = True
+        etat_collecte["motif"] = (
+            "première collecte" if base_vide
+            else f"{len(manquants)} modèles à reconstruire après mise à jour"
+        )
         threading.Thread(target=_collecte_quotidienne, daemon=True).start()
 
     yield
@@ -280,7 +309,14 @@ def api_etat():
             return None
         return (aujourdhui - dt.date.fromisoformat(date_texte)).days
 
+    from carburants.modele import entrainement
+
+    manquants = entrainement.modeles_manquants()
     return {
+        "collecte_en_cours": etat_collecte["en_cours"],
+        "motif_collecte": etat_collecte["motif"],
+        "modeles_manquants": len(manquants),
+        "modeles_attendus": len(config.CARBURANTS) * len(config.HORIZONS_JOURS),
         "derniere_moyenne_nationale": derniere_pompe,
         "dernier_releve_stations": derniere_station,
         "derniere_cotation_brent": dernier_marche,

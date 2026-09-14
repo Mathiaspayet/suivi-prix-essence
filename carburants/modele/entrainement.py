@@ -278,12 +278,46 @@ def entrainer(carburant, horizon, revalider=None, journal=print):
 
 
 def charger(carburant, horizon):
-    """Recharge un modèle entraîné, ou None s'il n'existe pas encore."""
+    """Recharge un modèle entraîné, ou None s'il est absent ou périmé.
+
+    Un modèle enregistré par une version antérieure du programme peut attendre
+    d'autres variables que celles qu'on lui présente aujourd'hui — c'est arrivé
+    lors de l'ajout des cotations de gros, qui a fait passer le jeu de seize à
+    vingt colonnes. Lui soumettre les nouvelles le ferait échouer au moment de
+    prédire, c'est-à-dire devant l'utilisateur.
+
+    On compare donc la liste enregistrée avec celle attendue, et un modèle
+    devenu incompatible est traité comme absent : il sera simplement réentraîné.
+    """
     chemin = DOSSIER_MODELES / f"{carburant}_{horizon}j.pkl"
     if not chemin.exists():
         return None
-    with open(chemin, "rb") as fichier:
-        return pickle.load(fichier)
+    try:
+        with open(chemin, "rb") as fichier:
+            paquet = pickle.load(fichier)
+    except Exception:
+        # Fichier tronqué par un arrêt brutal, ou écrit par une version de
+        # scikit-learn incompatible : on repart de zéro plutôt que d'échouer.
+        return None
+
+    if paquet.get("colonnes") != caracteristiques.COLONNES_CARACTERISTIQUES:
+        return None
+    return paquet
+
+
+def modeles_manquants(carburants=None):
+    """Liste les couples (carburant, horizon) sans modèle exploitable.
+
+    Sert au démarrage : une mise à jour de l'image peut avoir rendu les modèles
+    du volume incompatibles, et il faut alors les reconstruire sans attendre la
+    collecte du lendemain.
+    """
+    manquants = []
+    for carburant in (carburants or config.CARBURANTS):
+        for horizon in config.HORIZONS_JOURS:
+            if charger(carburant, horizon) is None:
+                manquants.append((carburant, horizon))
+    return manquants
 
 
 def entrainer_tout(carburants=None, revalider=None, journal=print):
