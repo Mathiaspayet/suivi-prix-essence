@@ -704,13 +704,18 @@ let stationsTracees = JSON.parse(localStorage.getItem("courbes") || "[]");
 /* Couleurs de séries, prises dans un ordre fixe et jamais recyclées : une
    station garde sa teinte tant qu'elle est cochée, même si une autre est
    retirée de la liste. */
+/* Les deux premiers emplacements de la palette sont pris par les séries
+   nationales — bleu pour le prix à la pompe, orange pour la matière première
+   ou le prix attendu. Les stations reçoivent donc les suivants, dans un ordre
+   fixe et jamais recyclé : une station garde sa teinte tant qu'elle est
+   cochée, même si une autre est retirée. */
 const COULEURS_SERIES = [
-  { clair: "#2a78d6", sombre: "#3987e5" },
-  { clair: "#eb6834", sombre: "#d95926" },
-  { clair: "#1baf7a", sombre: "#199e70" },
-  { clair: "#eda100", sombre: "#c98500" },
-  { clair: "#e87ba4", sombre: "#d55181" },
-  { clair: "#008300", sombre: "#008300" },
+  { clair: "#1baf7a", sombre: "#199e70" },   // aqua
+  { clair: "#eda100", sombre: "#c98500" },   // jaune
+  { clair: "#e87ba4", sombre: "#d55181" },   // magenta
+  { clair: "#008300", sombre: "#008300" },   // vert
+  { clair: "#4a3aa7", sombre: "#9085e9" },   // violet
+  { clair: "#e34948", sombre: "#e66767" },   // rouge
 ];
 const enThemeSombre = () =>
   document.documentElement.dataset.theme === "dark"
@@ -738,11 +743,6 @@ function basculerCourbe(id, actif) {
     stationsTracees = stationsTracees.filter((x) => x !== id);
   }
   localStorage.setItem("courbes", JSON.stringify(stationsTracees));
-  if (stationsTracees.length && vueGraphique !== "stations") {
-    vueGraphique = "stations";
-    localStorage.setItem("vue", vueGraphique);
-    construireVues();
-  }
   chargerGraphique();
 }
 
@@ -765,16 +765,6 @@ const VUES = {
         + "le transport et les marges. Il constitue l'essentiel du prix payé : la "
         + "matière première compte pour environ un quart du montant affiché à la pompe.",
   },
-  stations: {
-    nom: "Mes stations",
-    titre: "Comparer des stations",
-    series: [],
-    depuisZero: false,
-    note: "Cochez des stations dans la liste ci-dessous pour suivre leur prix "
-        + "jour après jour. L'historique remonte au 1ᵉʳ janvier pour les stations "
-        + "proches de votre commune et pour celles que vous suivez ; les autres "
-        + "n'ont que les relevés accumulés depuis l'installation.",
-  },
   repercussion: {
     nom: "Répercussion",
     titre: "Avec quel retard la pompe suit-elle le baril ?",
@@ -796,79 +786,6 @@ const VUES = {
   },
 };
 
-async function dessinerCourbesStations(vue) {
-  document.getElementById("titre-graphe").textContent = vue.titre;
-  document.getElementById("note-graphe").textContent = vue.note;
-
-  if (!stationsTracees.length) {
-    document.getElementById("legende-graphe").innerHTML =
-      `<span style="color:var(--encre-3)">Aucune station sélectionnée.</span>`;
-    if (graphique) { graphique.destroy(); graphique = null; }
-    return;
-  }
-
-  const d = await (await fetch(
-    `/api/stations/historique?ids=${stationsTracees.join(",")}`
-    + `&carburant=${encodeURIComponent(carburantActif)}&jours=${joursAffiches}`)).json();
-
-  if (!d.series.length) {
-    document.getElementById("legende-graphe").innerHTML =
-      `<span style="color:var(--encre-3)">Ces stations ne proposent pas de `
-      + `${carburantActif}, ou leur historique n'est pas encore constitué.</span>`;
-    if (graphique) { graphique.destroy(); graphique = null; }
-    return;
-  }
-
-  // Axe commun : chaque station a sa propre plage de dates, on prend l'union
-  // pour que les courbes se superposent correctement.
-  const dates = [...new Set(d.series.flatMap((s) => s.points.map((p) => p.date)))].sort();
-  const jeux = d.series.map((s, rang) => {
-    const par_date = Object.fromEntries(s.points.map((p) => [p.date, p.prix]));
-    return {
-      label: `${s.enseigne || "Station"} — ${s.ville}`,
-      data: dates.map((j) => par_date[j] ?? null),
-      borderColor: couleurSerie(rang),
-      backgroundColor: couleurSerie(rang),
-      borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.1,
-      fill: false, spanGaps: false,
-    };
-  });
-
-  document.getElementById("legende-graphe").innerHTML = jeux.map((j) =>
-    `<span><span class="marque" style="background:${j.borderColor}"></span>${j.label}</span>`
-  ).join("");
-
-  if (graphique) graphique.destroy();
-  graphique = new Chart(document.getElementById("graphe"), {
-    type: "line",
-    data: { labels: dates, datasets: jeux },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: "index", intersect: false },
-      plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: {
-          title: (e) => dateLongue(dates[e[0].dataIndex]),
-          label: (c) => `${c.dataset.label} : ${euros(c.parsed.y)} / L`,
-        } },
-      },
-      scales: {
-        x: { grid: { display: true, color: encre("--grille"), drawTicks: false },
-             ticks: { color: encre("--encre-3"), maxTicksLimit: 7, maxRotation: 0,
-                      autoSkipPadding: 14, font: { size: 11 },
-                      callback: function (v) {
-                        return dateCourte(this.getLabelForValue(v), joursAffiches > 400);
-                      } },
-             border: { color: encre("--axe") } },
-        y: { beginAtZero: false, grid: { color: encre("--grille") },
-             border: { display: false },
-             ticks: { color: encre("--encre-3"), font: { size: 11 },
-                      callback: (v) => v.toFixed(2).replace(".", ",") + " €" } },
-      },
-    },
-  });
-}
-
 function construireVues() {
   const zone = document.getElementById("vues");
   zone.innerHTML = "";
@@ -889,15 +806,33 @@ function construireVues() {
 
 async function chargerGraphique() {
   const vue = VUES[vueGraphique] || VUES.reels;
-  if (vueGraphique === "stations") { await dessinerCourbesStations(vue); return; }
   const reponse = await fetch(`/api/historique?carburant=${encodeURIComponent(carburantActif)}&jours=${joursAffiches}`);
   const points = (await reponse.json()).points;
 
+  // Stations cochées, superposées aux séries nationales. Les récupérer avant
+  // de construire le graphique évite de le dessiner deux fois.
+  let seriesStations = [];
+  if (stationsTracees.length) {
+    const r = await fetch(`/api/stations/historique?ids=${stationsTracees.join(",")}`
+      + `&carburant=${encodeURIComponent(carburantActif)}&jours=${joursAffiches}`);
+    seriesStations = (await r.json()).series || [];
+  }
+
   document.getElementById("titre-graphe").textContent = vue.titre;
-  document.getElementById("note-graphe").textContent = vue.note;
+  document.getElementById("note-graphe").textContent = vue.note
+    + (stationsTracees.length
+        ? " Les stations cochées dans la liste sont superposées ; leur historique "
+          + "remonte au 1ᵉʳ janvier pour le voisinage de votre commune, et se "
+          + "limite aux relevés accumulés depuis l'installation pour les autres."
+        : "");
   let legende = vue.series.map((s) =>
     `<span><span class="marque" style="background:${encre(s.couleur)}"></span>${s.nom}</span>`
   ).join("");
+  if (seriesStations.length) {
+    legende += seriesStations.map((s, rang) =>
+      `<span><span class="marque" style="background:${couleurSerie(rang)}"></span>${
+        s.enseigne || "Station"} — ${s.ville}</span>`).join("");
+  }
   if (vueGraphique === "repercussion") {
     // La légende nomme les teintes : un daltonien, ou une impression en noir
     // et blanc, doit pouvoir lire le graphique sans se fier à la couleur.
@@ -928,6 +863,21 @@ async function chargerGraphique() {
     // droit qui inventerait une valeur.
     spanGaps: false,
   }));
+
+  // Chaque station est projetée sur l'axe de dates du graphique : ses relevés
+  // ne couvrent pas forcément la même période que la moyenne nationale.
+  seriesStations.forEach((s, rang) => {
+    const par_date = Object.fromEntries(s.points.map((p) => [p.date, p.prix]));
+    jeux.push({
+      label: `${s.enseigne || "Station"} — ${s.ville}`,
+      data: points.map((p) => par_date[p.date] ?? null),
+      borderColor: couleurSerie(rang),
+      backgroundColor: couleurSerie(rang),
+      borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.1,
+      fill: false, spanGaps: false,
+      estUneStation: true,
+    });
+  });
 
   const configuration = {
     type: "line",

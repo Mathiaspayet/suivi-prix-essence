@@ -56,6 +56,9 @@ def manques():
     if manquants:
         trouvailles.append(f"{len(manquants)} modèles de prévision à reconstruire")
 
+    if not _historique_local_present():
+        trouvailles.append("l'historique des stations voisines est absent")
+
     # Données périmées : le conteneur a pu rester éteint plusieurs jours.
     if derniere:
         retard = (dt.date.today() - dt.date.fromisoformat(derniere)).days
@@ -63,6 +66,45 @@ def manques():
             trouvailles.append(f"les prix datent de {retard} jours")
 
     return trouvailles
+
+
+def _historique_local_present():
+    """Dit si les stations du voisinage ont bien leur historique.
+
+    Sans lui, cocher une station ne trace qu'un trait plat de deux jours :
+    celui des relevés accumulés depuis l'installation. L'historique se
+    reconstitue depuis l'archive annuelle, mais uniquement pour le voisinage
+    de la commune configurée — d'où ce contrôle, qui porte précisément sur
+    ces stations-là et non sur les 9 800 du pays.
+    """
+    from carburants import reglages
+    from carburants.sources import stations
+
+    communes = stations.chercher_commune(reglages.lire("commune_par_defaut"))
+    if not communes:
+        return True          # pas de commune configurée : rien à vérifier
+
+    voisines = {
+        s["id"]
+        for s in stations.stations_autour(
+            communes[0]["lat"], communes[0]["lon"], "Gazole",
+            rayon_km=reglages.lire_entier("rayon_historique_km", 60), limite=400,
+        )
+    }
+    if not voisines:
+        return True
+
+    trous = ",".join("?" * len(voisines))
+    with base.connexion() as cx:
+        pourvues = _compter(
+            cx,
+            f"""SELECT COUNT(DISTINCT station_id) FROM prix_station
+                WHERE station_id IN ({trous})
+                  AND date <= date('now', '-30 day')""",
+            *voisines,
+        )
+    # La moitié suffit : certaines stations sont récentes, d'autres ferment.
+    return pourvues >= len(voisines) * 0.5
 
 
 def etat_donnees():
