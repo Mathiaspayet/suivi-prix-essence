@@ -75,28 +75,19 @@ async def cycle_de_vie(app):
     )
     planificateur.start()
 
-    # Deux situations imposent de travailler sans attendre l'heure dite.
-    #
-    # La base vide, d'abord : c'est le tout premier démarrage, et la page
-    # s'ouvrirait sur un écran désert.
-    #
-    # Les modèles manquants ensuite, cas plus sournois. Une mise à jour de
-    # l'image peut changer le jeu de variables et rendre inexploitables les
-    # modèles conservés dans le volume. La base, elle, reste bien remplie :
-    # s'en tenir à ce seul critère laisserait l'application afficher
-    # « modèle non entraîné » jusqu'à la collecte du lendemain.
-    from carburants.modele import entrainement
+    # Tout ce qui manque en base est reconstitué sans attendre l'heure dite.
+    # Le contrôle est délibérément générique : une mise à jour de l'image peut
+    # apporter un besoin de données que la base, pourtant bien remplie, n'a
+    # jamais satisfait. S'en tenir au critère « base vide » a laissé
+    # l'application muette deux fois — une fois sur les modèles de prévision,
+    # une fois sur les enseignes. Les contrôles sont rassemblés dans
+    # carburants/diagnostic.py, où toute nouveauté ajoute le sien.
+    from carburants import diagnostic
 
-    with base.connexion() as cx:
-        base_vide = cx.execute("SELECT COUNT(*) FROM prix_station").fetchone()[0] == 0
-    manquants = entrainement.modeles_manquants()
-
-    if base_vide or manquants:
+    trouvailles = diagnostic.manques()
+    if trouvailles:
         etat_collecte["en_cours"] = True
-        etat_collecte["motif"] = (
-            "première collecte" if base_vide
-            else f"{len(manquants)} modèles à reconstruire après mise à jour"
-        )
+        etat_collecte["motif"] = " ; ".join(trouvailles)
         threading.Thread(target=_collecte_quotidienne, daemon=True).start()
 
     yield
@@ -217,6 +208,51 @@ def api_stations(
             "nb": len(resultats),
         },
     }
+
+
+@application.get("/api/stations/historique")
+def api_historique_stations(
+    ids: str = Query(...), carburant: str = Query("Gazole"), jours: int = Query(365)
+):
+    """Courbes de prix de quelques stations désignées.
+
+    L'historique n'existe que pour les stations du voisinage et celles qui
+    sont suivies : le conserver pour les 9 800 stations représenterait quatre
+    cents mégaoctets pour un usage qui n'existe pas. Les autres n'ont que les
+    relevés accumulés depuis l'installation.
+    """
+    if carburant not in config.CARBURANTS:
+        raise HTTPException(404, f"Carburant inconnu : {carburant}")
+
+    identifiants = [i.strip() for i in ids.split(",") if i.strip()][:6]
+    if not identifiants:
+        return {"series": []}
+
+    trous = ",".join("?" * len(identifiants))
+    with base.connexion() as cx:
+        lignes = cx.execute(
+            f"""SELECT p.station_id, p.date, p.prix, s.enseigne, s.ville, s.adresse
+                FROM prix_station p JOIN station s ON s.id = p.station_id
+                WHERE p.carburant = ? AND p.station_id IN ({trous})
+                  AND p.date >= date('now', ?)
+                ORDER BY p.date""",
+            [carburant] + identifiants + [f"-{jours} day"],
+        ).fetchall()
+
+    par_station = {}
+    for ligne in lignes:
+        entree = par_station.setdefault(ligne["station_id"], {
+            "id": ligne["station_id"],
+            "enseigne": ligne["enseigne"],
+            "ville": ligne["ville"],
+            "adresse": ligne["adresse"],
+            "points": [],
+        })
+        entree["points"].append({"date": ligne["date"], "prix": round(ligne["prix"], 3)})
+
+    # On respecte l'ordre demandé : c'est celui de la liste à l'écran.
+    series = [par_station[i] for i in identifiants if i in par_station]
+    return {"carburant": carburant, "series": series}
 
 
 @application.get("/api/favoris")
@@ -380,40 +416,38 @@ def api_palmares(carburant: str = Query(None)):
     return base.palmares(carburant)
 
 
+@application.post("/api/collecte")
+def api_lancer_collecte(x_mot_de_passe: str = Header(None)):
+    """Déclenche une collecte immédiate, à la demande.
+
+    Utile pour ne pas attendre l'heure dite : après une mise à jour de
+    l'image, ou simplement pour rafraîchir les prix avant de prendre la route.
+    """
+    _verifier_acces(x_mot_de_passe)
+    if etat_collecte["en_cours"]:
+        return {"ok": False, "message": "Une collecte est déjà en cours."}
+    etat_collecte["en_cours"] = True
+    etat_collecte["motif"] = "mise à jour demandée"
+    threading.Thread(target=_collecte_quotidienne, daemon=True).start()
+    return {"ok": True, "message": "Mise à jour lancée. Comptez une à deux minutes."}
+
+
 @application.get("/api/etat")
 def api_etat():
-    """État des données : sert à signaler une collecte en panne.
+    """État et fraîcheur des données.
 
     Une application qui affiche sereinement des chiffres périmés est pire
     qu'une application en panne, parce que rien ne le signale.
     """
-    with base.connexion() as cx:
-        derniere_pompe = cx.execute("SELECT MAX(date) FROM prix_national").fetchone()[0]
-        derniere_station = cx.execute("SELECT MAX(date) FROM prix_station").fetchone()[0]
-        dernier_marche = cx.execute(
-            "SELECT MAX(date) FROM marche WHERE indicateur = 'brent_usd'"
-        ).fetchone()[0]
-        nb_stations = cx.execute("SELECT COUNT(*) FROM station").fetchone()[0]
+    from carburants import diagnostic
 
-    aujourdhui = dt.date.today()
-    def anciennete(date_texte):
-        if not date_texte:
-            return None
-        return (aujourdhui - dt.date.fromisoformat(date_texte)).days
-
-    from carburants.modele import entrainement
-
-    manquants = entrainement.modeles_manquants()
-    return {
-        "collecte_en_cours": etat_collecte["en_cours"],
-        "motif_collecte": etat_collecte["motif"],
-        "modeles_manquants": len(manquants),
-        "modeles_attendus": len(config.CARBURANTS) * len(config.HORIZONS_JOURS),
-        "derniere_moyenne_nationale": derniere_pompe,
-        "dernier_releve_stations": derniere_station,
-        "derniere_cotation_brent": dernier_marche,
-        "nb_stations": nb_stations,
-        "retard_jours": anciennete(derniere_station),
-        # La FRED publie avec quelques jours de décalage : ce n'est pas une panne.
-        "retard_brent_jours": anciennete(dernier_marche),
-    }
+    etat = diagnostic.etat_donnees()
+    etat["collecte_en_cours"] = etat_collecte["en_cours"]
+    etat["motif_collecte"] = etat_collecte["motif"]
+    etat["debut_collecte"] = etat_collecte["depuis"]
+    etat["heure_collecte"] = HEURE_COLLECTE
+    etat["modeles_manquants"] = len(
+        __import__("carburants.modele.entrainement", fromlist=["x"]).modeles_manquants()
+    )
+    etat["modeles_attendus"] = len(config.CARBURANTS) * len(config.HORIZONS_JOURS)
+    return etat

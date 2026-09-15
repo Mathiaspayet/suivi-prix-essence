@@ -9,7 +9,8 @@ Elle fait trois choses :
   de la moins chère à la plus chère, avec leur enseigne ;
 - **classer les enseignes** par prix et par marge ;
 - **suivre** l'évolution du prix et la comparer au cours du pétrole brut ;
-- **prévoir** le sens de la prochaine variation, et prévenir par courriel quand il change.
+- **prévoir** le sens de la prochaine variation, et prévenir par courriel quand il change ;
+- **comparer des stations précises** en cochant leur courbe dans la liste.
 
 ---
 
@@ -208,7 +209,26 @@ Au premier démarrage, l'application constitue seule son historique : environ
 page reste accessible pendant ce temps, simplement dépeuplée. Ensuite, elle se
 met à jour toute seule chaque jour à 11 h.
 
-### 2. Mises à jour automatiques
+### 2. Rafraîchir à la demande
+
+L'en-tête indique en permanence de quand datent les prix affichés et à quelle
+heure aura lieu la prochaine collecte. Le bouton **Mettre à jour** la déclenche
+sans attendre — utile avant de prendre la route, ou après une mise à jour de
+l'image.
+
+Le démarrage vérifie par ailleurs que rien ne manque en base : référentiel des
+stations, enseignes, moyennes nationales, cotations de marché, modèles de
+prévision, fraîcheur des relevés. Tout manque déclenche une reconstruction
+immédiate, sans attendre le lendemain.
+
+Ce contrôle a été écrit après deux occurrences du même défaut. À chaque mise à
+jour apportant un nouveau besoin de données — les modèles d'abord, les
+enseignes ensuite — l'application démarrait sans rien reconstruire et affichait
+des colonnes vides pendant vingt-quatre heures. Les vérifications sont
+désormais réunies dans `carburants/diagnostic.py`, où toute nouveauté ajoute la
+sienne.
+
+### 3. Mises à jour automatiques
 
 Le conteneur porte l'étiquette
 `com.centurylinklabs.watchtower.scope=gestion-locative`, qui le place sous la
@@ -224,6 +244,19 @@ volume nommé, traversent l'opération intactes.
 Une modification portant uniquement sur la documentation ne déclenche aucune
 compilation : recompiler et redéployer une application dont le code n'a pas
 bougé ne ferait que la redémarrer pour rien.
+
+### Comparer des stations précises
+
+Une case à cocher au bout de chaque ligne de la liste affiche la courbe de la
+station sur le graphique, jusqu'à six à la fois — au-delà, les couleurs ne se
+distinguent plus.
+
+L'historique par station n'est conservé que pour le voisinage de la commune
+configurée (soixante kilomètres par défaut) et pour les stations suivies. Tout
+garder représenterait neuf millions de lignes et quatre cents mégaoctets pour
+la seule année en cours, au bénéfice d'un usage qui n'existe pas : personne ne
+consulte la courbe d'une station qu'il ne fréquentera jamais. Les stations plus
+lointaines n'ont que les relevés accumulés depuis l'installation.
 
 ### En cas d'erreur « unauthorized » au téléchargement
 

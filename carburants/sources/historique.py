@@ -103,6 +103,78 @@ def _propager(serie):
     return propagee
 
 
+def extraire_stations(annee, identifiants, journal=print):
+    """Historique quotidien de quelques stations nommément désignées.
+
+    Conserver l'historique des 9 800 stations représenterait neuf millions de
+    lignes et près de quatre cents mégaoctets pour la seule année en cours —
+    disproportionné sur un NAS, et sans objet : personne ne consulte la courbe
+    d'une station qu'il ne fréquentera jamais. On n'extrait donc que celles du
+    voisinage et les stations suivies.
+
+    Les lignes rejoignent la table « prix_station », celle-là même que la
+    collecte quotidienne alimente : l'historique reconstitué et les relevés du
+    jour s'y raccordent sans couture.
+    """
+    identifiants = set(identifiants)
+    if not identifiants:
+        return []
+
+    debut_annee = dt.date(annee, 1, 1)
+    fin_annee = dt.date(annee, 12, 31)
+    derniere_date = min(fin_annee, dt.date.today())
+    nb_jours = (fin_annee - debut_annee).days + 1
+    nb_jours_utiles = (derniere_date - debut_annee).days + 1
+
+    lignes = []
+    with zipfile.ZipFile(chemin_archive(annee)) as zip_ouvert:
+        with zip_ouvert.open(zip_ouvert.namelist()[0]) as flux:
+            contexte = ET.iterparse(flux, events=("start", "end"))
+            _, racine = next(contexte)
+            for evenement, element in contexte:
+                if evenement != "end" or element.tag != "pdv":
+                    continue
+                identifiant = str(element.get("id") or "").strip()
+                if identifiant not in identifiants:
+                    element.clear(); racine.clear()
+                    continue
+
+                releves = {}
+                for prix in element.findall("prix"):
+                    nom = prix.get("nom")
+                    if nom not in NOMS_XML:
+                        continue
+                    horodatage = prix.get("maj") or ""
+                    valeur = _normaliser_prix(prix.get("valeur"))
+                    if valeur is None or len(horodatage) < 10:
+                        continue
+                    try:
+                        jour = dt.date.fromisoformat(horodatage[:10])
+                    except ValueError:
+                        continue
+                    indice = (jour - debut_annee).days
+                    if 0 <= indice < nb_jours:
+                        releves.setdefault(nom, {})[indice] = valeur
+
+                for nom, par_jour in releves.items():
+                    serie = np.full(nb_jours, np.nan)
+                    serie[list(par_jour.keys())] = list(par_jour.values())
+                    serie = _propager(serie)
+                    for indice in range(nb_jours_utiles):
+                        valeur = serie[indice]
+                        if np.isnan(valeur):
+                            continue
+                        lignes.append((
+                            (debut_annee + dt.timedelta(days=indice)).isoformat(),
+                            identifiant, nom, round(float(valeur), 3),
+                        ))
+
+                element.clear(); racine.clear()
+
+    journal(f"    {annee} : {len(lignes)} relevés pour {len(identifiants)} stations")
+    return lignes
+
+
 def agreger_annee_par_enseigne(annee, correspondance, journal=print):
     """Moyennes quotidiennes par enseigne, pour une année d'archive.
 

@@ -43,6 +43,9 @@ DEFINITIONS = {
     # --- Affichage ---
     "commune_par_defaut":  {"defaut": "Mimizan", "env": "COMMUNE_PAR_DEFAUT"},
     "rayon_par_defaut_km": {"defaut": "30",      "env": "RAYON_PAR_DEFAUT_KM"},
+    # Rayon autour duquel l'historique par station est reconstitué. Au-delà,
+    # seuls les relevés accumulés jour après jour existent.
+    "rayon_historique_km": {"defaut": "60",      "env": "RAYON_HISTORIQUE_KM"},
 }
 
 SECRETS = {c for c, d in DEFINITIONS.items() if d.get("secret")}

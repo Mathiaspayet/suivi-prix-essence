@@ -110,9 +110,17 @@ def telecharger():
     return correspondance
 
 
-def rafraichir(journal=print):
-    """Met à jour l'enseigne de chaque station connue."""
-    correspondance = telecharger()
+def rafraichir(journal=print, correspondance=None):
+    """Met à jour l'enseigne de chaque station connue.
+
+    « correspondance » permet de réutiliser un référentiel déjà téléchargé.
+    Ce n'est pas une optimisation cosmétique : le téléchargement prend près
+    d'une minute, et la tâche quotidienne en avait besoin deux fois — pour
+    nommer les stations, puis pour agréger les prix par enseigne. Le
+    récupérer une seule fois épargne une minute par nuit.
+    """
+    if correspondance is None:
+        correspondance = telecharger()
     with base.connexion() as cx:
         connues = [l["id"] for l in cx.execute("SELECT id FROM station")]
         a_ecrire = [

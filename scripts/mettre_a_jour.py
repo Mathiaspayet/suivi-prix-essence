@@ -26,10 +26,19 @@ def mettre_a_jour(journal=print):
     base.initialiser()
     incidents = []
 
+    # Le référentiel des enseignes est téléchargé une fois et réutilisé : il
+    # sert à nommer les stations puis à agréger les prix par enseigne, et son
+    # téléchargement coûte près d'une minute.
+    referentiel = {}
+    try:
+        referentiel = enseignes.telecharger()
+    except Exception as erreur:
+        journal(f"  enseignes : référentiel indisponible ({erreur})")
+
     for intitule, action in [
         ("prix des stations", lambda: stations.rafraichir(journal)),
         ("données de marché", lambda: marche.rafraichir(depuis="2018-01-01", journal=journal)),
-        ("enseignes", lambda: enseignes.rafraichir(journal)),
+        ("enseignes", lambda: enseignes.rafraichir(journal, referentiel or None)),
     ]:
         try:
             action()
@@ -75,14 +84,61 @@ def mettre_a_jour(journal=print):
         # alimentent le comparatif des réseaux, qui n'aurait aucun sens sans
         # profondeur historique — la réactivité d'une enseigne se mesure sur
         # une année, pas sur un relevé.
-        correspondance = enseignes.telecharger()
         for annee in annees_manquantes + [annee_courante]:
             par_enseigne = historique.agreger_annee_par_enseigne(
-                annee, correspondance, journal=lambda m: None
+                annee, referentiel, journal=lambda m: None
             )
             base.enregistrer_prix_enseigne(par_enseigne)
         journal(f"  moyennes par enseigne : {len(par_enseigne)} lignes pour "
                 f"{annee_courante}")
+
+        # Historique des stations du voisinage et des stations suivies, afin
+        # que leurs courbes ne soient pas vides le jour où l'on veut les
+        # comparer. Limité au voisinage : tout conserver pèserait quatre cents
+        # mégaoctets pour un usage qui n'existe pas.
+        from carburants import reglages
+        from carburants.sources import stations as source_stations
+
+        interessantes = set()
+        with base.connexion() as cx:
+            interessantes.update(
+                l["station_id"] for l in cx.execute("SELECT station_id FROM favori")
+            )
+        communes = source_stations.chercher_commune(reglages.lire("commune_par_defaut"))
+        if communes:
+            rayon = reglages.lire_entier("rayon_historique_km", 60)
+            for carburant in ("Gazole", "SP95", "SP98", "E10"):
+                interessantes.update(
+                    s["id"] for s in source_stations.stations_autour(
+                        communes[0]["lat"], communes[0]["lon"], carburant,
+                        rayon_km=rayon, limite=400)
+                )
+        # Le passé ne change pas : on n'extrait que les stations dépourvues
+        # d'historique. Sans ce filtre, l'archive serait relue en entier chaque
+        # nuit pour réécrire des lignes identiques, et la tâche quotidienne
+        # passerait de quatre-vingts à cent quarante secondes.
+        with base.connexion() as cx:
+            deja_pourvues = {
+                l["station_id"] for l in cx.execute(
+                    """SELECT station_id FROM prix_station
+                       WHERE date <= date('now', '-30 day')
+                       GROUP BY station_id""")
+            }
+        interessantes -= deja_pourvues
+
+        if interessantes:
+            releves = historique.extraire_stations(
+                annee_courante, interessantes, journal=lambda m: None
+            )
+            with base.connexion() as cx:
+                cx.executemany(
+                    """INSERT INTO prix_station (date, station_id, carburant, prix)
+                       VALUES (?, ?, ?, ?)
+                       ON CONFLICT(date, station_id, carburant) DO NOTHING""",
+                    releves,
+                )
+            journal(f"  historique local : {len(releves)} relevés pour "
+                    f"{len(interessantes)} stations")
     except Exception as erreur:
         incidents.append("moyennes nationales")
         journal(f"  moyennes nationales : échec ({erreur})")

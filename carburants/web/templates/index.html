@@ -219,6 +219,7 @@ footer a { color: inherit; }
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <div class="onglets" id="onglets-carburant" role="group" aria-label="Choix du carburant"></div>
+      <button class="secondaire" id="bouton-collecte">Mettre à jour</button>
       <button class="secondaire" id="bouton-reglages" aria-expanded="false">Réglages</button>
     </div>
   </header>
@@ -529,6 +530,28 @@ document.getElementById("bouton-reglages").onclick = async () => {
     bouton.setAttribute("aria-expanded", "false");
   }
 };
+document.getElementById("bouton-collecte").onclick = async () => {
+  const bouton = document.getElementById("bouton-collecte");
+  bouton.disabled = true; bouton.textContent = "Mise à jour…";
+  const reponse = await fetch("/api/collecte", { method: "POST", headers: enTetesAdmin() });
+  if (reponse.status === 401) {
+    const saisi = prompt("Mot de passe de configuration :");
+    if (saisi) sessionStorage.setItem("admin", saisi);
+    bouton.disabled = false; bouton.textContent = "Mettre à jour";
+    return;
+  }
+  const d = await reponse.json();
+  document.getElementById("etat").textContent = d.message;
+  // On repasse voir régulièrement plutôt que d'exiger un rechargement.
+  const surveiller = setInterval(async () => {
+    const e = await (await fetch("/api/etat")).json();
+    if (!e.collecte_en_cours) {
+      clearInterval(surveiller);
+      bouton.disabled = false; bouton.textContent = "Mettre à jour";
+      chargerEtat(); toutRafraichir();
+    }
+  }, 5000);
+};
 document.getElementById("enregistrer-reglages").onclick = enregistrerConfiguration;
 document.getElementById("essai-mail").onclick = essayerMessagerie;
 
@@ -673,6 +696,56 @@ async function chargerPrevisions() {
 let minuterieEntrainement;
 let vueGraphique = localStorage.getItem("vue") || "reels";
 
+/* Stations dont on affiche la courbe. Six au maximum : au-delà, les couleurs
+   ne se distinguent plus et le graphique devient un plat de spaghettis. */
+const MAXIMUM_COURBES = 6;
+let stationsTracees = JSON.parse(localStorage.getItem("courbes") || "[]");
+
+/* Couleurs de séries, prises dans un ordre fixe et jamais recyclées : une
+   station garde sa teinte tant qu'elle est cochée, même si une autre est
+   retirée de la liste. */
+const COULEURS_SERIES = [
+  { clair: "#2a78d6", sombre: "#3987e5" },
+  { clair: "#eb6834", sombre: "#d95926" },
+  { clair: "#1baf7a", sombre: "#199e70" },
+  { clair: "#eda100", sombre: "#c98500" },
+  { clair: "#e87ba4", sombre: "#d55181" },
+  { clair: "#008300", sombre: "#008300" },
+];
+const enThemeSombre = () =>
+  document.documentElement.dataset.theme === "dark"
+  || (document.documentElement.dataset.theme !== "light"
+      && window.matchMedia("(prefers-color-scheme: dark)").matches);
+const couleurSerie = (rang) => {
+  const c = COULEURS_SERIES[rang % COULEURS_SERIES.length];
+  return enThemeSombre() ? c.sombre : c.clair;
+};
+
+function basculerCourbe(id, actif) {
+  if (actif) {
+    if (stationsTracees.includes(id)) return;
+    if (stationsTracees.length >= MAXIMUM_COURBES) {
+      // Au-delà de six courbes, on retire la plus ancienne plutôt que de
+      // refuser : l'utilisateur voit immédiatement ce qu'il vient de cocher.
+      // Sa case est décochée sur place, sans reconstruire la liste — la
+      // redessiner ferait sauter la position de défilement.
+      const evincee = stationsTracees.shift();
+      const case_ = document.querySelector(`.coche-courbe[data-id="${evincee}"]`);
+      if (case_) case_.checked = false;
+    }
+    stationsTracees.push(id);
+  } else {
+    stationsTracees = stationsTracees.filter((x) => x !== id);
+  }
+  localStorage.setItem("courbes", JSON.stringify(stationsTracees));
+  if (stationsTracees.length && vueGraphique !== "stations") {
+    vueGraphique = "stations";
+    localStorage.setItem("vue", vueGraphique);
+    construireVues();
+  }
+  chargerGraphique();
+}
+
 /* Les deux lectures possibles des mêmes données.
    « Prix réels » montre la part des taxes ; « Répercussion » montre le retard
    avec lequel la pompe suit le baril. Jamais deux axes verticaux : avec deux
@@ -691,6 +764,16 @@ const VUES = {
     note: "L'espace entre les deux courbes représente les taxes, le raffinage, "
         + "le transport et les marges. Il constitue l'essentiel du prix payé : la "
         + "matière première compte pour environ un quart du montant affiché à la pompe.",
+  },
+  stations: {
+    nom: "Mes stations",
+    titre: "Comparer des stations",
+    series: [],
+    depuisZero: false,
+    note: "Cochez des stations dans la liste ci-dessous pour suivre leur prix "
+        + "jour après jour. L'historique remonte au 1ᵉʳ janvier pour les stations "
+        + "proches de votre commune et pour celles que vous suivez ; les autres "
+        + "n'ont que les relevés accumulés depuis l'installation.",
   },
   repercussion: {
     nom: "Répercussion",
@@ -713,6 +796,79 @@ const VUES = {
   },
 };
 
+async function dessinerCourbesStations(vue) {
+  document.getElementById("titre-graphe").textContent = vue.titre;
+  document.getElementById("note-graphe").textContent = vue.note;
+
+  if (!stationsTracees.length) {
+    document.getElementById("legende-graphe").innerHTML =
+      `<span style="color:var(--encre-3)">Aucune station sélectionnée.</span>`;
+    if (graphique) { graphique.destroy(); graphique = null; }
+    return;
+  }
+
+  const d = await (await fetch(
+    `/api/stations/historique?ids=${stationsTracees.join(",")}`
+    + `&carburant=${encodeURIComponent(carburantActif)}&jours=${joursAffiches}`)).json();
+
+  if (!d.series.length) {
+    document.getElementById("legende-graphe").innerHTML =
+      `<span style="color:var(--encre-3)">Ces stations ne proposent pas de `
+      + `${carburantActif}, ou leur historique n'est pas encore constitué.</span>`;
+    if (graphique) { graphique.destroy(); graphique = null; }
+    return;
+  }
+
+  // Axe commun : chaque station a sa propre plage de dates, on prend l'union
+  // pour que les courbes se superposent correctement.
+  const dates = [...new Set(d.series.flatMap((s) => s.points.map((p) => p.date)))].sort();
+  const jeux = d.series.map((s, rang) => {
+    const par_date = Object.fromEntries(s.points.map((p) => [p.date, p.prix]));
+    return {
+      label: `${s.enseigne || "Station"} — ${s.ville}`,
+      data: dates.map((j) => par_date[j] ?? null),
+      borderColor: couleurSerie(rang),
+      backgroundColor: couleurSerie(rang),
+      borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.1,
+      fill: false, spanGaps: false,
+    };
+  });
+
+  document.getElementById("legende-graphe").innerHTML = jeux.map((j) =>
+    `<span><span class="marque" style="background:${j.borderColor}"></span>${j.label}</span>`
+  ).join("");
+
+  if (graphique) graphique.destroy();
+  graphique = new Chart(document.getElementById("graphe"), {
+    type: "line",
+    data: { labels: dates, datasets: jeux },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: {
+          title: (e) => dateLongue(dates[e[0].dataIndex]),
+          label: (c) => `${c.dataset.label} : ${euros(c.parsed.y)} / L`,
+        } },
+      },
+      scales: {
+        x: { grid: { display: true, color: encre("--grille"), drawTicks: false },
+             ticks: { color: encre("--encre-3"), maxTicksLimit: 7, maxRotation: 0,
+                      autoSkipPadding: 14, font: { size: 11 },
+                      callback: function (v) {
+                        return dateCourte(this.getLabelForValue(v), joursAffiches > 400);
+                      } },
+             border: { color: encre("--axe") } },
+        y: { beginAtZero: false, grid: { color: encre("--grille") },
+             border: { display: false },
+             ticks: { color: encre("--encre-3"), font: { size: 11 },
+                      callback: (v) => v.toFixed(2).replace(".", ",") + " €" } },
+      },
+    },
+  });
+}
+
 function construireVues() {
   const zone = document.getElementById("vues");
   zone.innerHTML = "";
@@ -733,6 +889,7 @@ function construireVues() {
 
 async function chargerGraphique() {
   const vue = VUES[vueGraphique] || VUES.reels;
+  if (vueGraphique === "stations") { await dessinerCourbesStations(vue); return; }
   const reponse = await fetch(`/api/historique?carburant=${encodeURIComponent(carburantActif)}&jours=${joursAffiches}`);
   const points = (await reponse.json()).points;
 
@@ -1000,7 +1157,8 @@ async function chargerStations() {
     + `soit ${s.economie_plein_50l.toFixed(2).replace(".", ",")} € sur un plein de 50 litres.`;
 
   corps.innerHTML = `<tr><th class="nombre">Prix</th><th>Enseigne</th><th>Adresse</th><th>Commune</th>
-                     <th class="nombre">Distance</th><th></th></tr>`;
+                     <th class="nombre">Distance</th><th></th>
+                     <th class="nombre" title="Afficher sa courbe sur le graphique">Courbe</th></tr>`;
   donnees.resultats.forEach((station, rang) => {
     const ligne = document.createElement("tr");
     if (rang === 0) ligne.className = "moins-cher";
@@ -1011,11 +1169,15 @@ async function chargerStations() {
       <td>${station.adresse || "—"}</td>
       <td>${station.ville} <span class="etiquette">${station.code_postal}</span></td>
       <td class="nombre">${station.distance_km.toFixed(1).replace(".", ",")} km</td>
-      <td><button class="lien">${station.favori ? "Ne plus suivre" : "Suivre"}</button></td>`;
+      <td><button class="lien">${station.favori ? "Ne plus suivre" : "Suivre"}</button></td>
+      <td class="nombre"><input type="checkbox" class="coche-courbe" data-id="${station.id}"
+          ${stationsTracees.includes(station.id) ? "checked" : ""}
+          aria-label="Afficher la courbe de cette station"></td>`;
     ligne.querySelector("button").onclick = async () => {
       await fetch(`/api/favoris/${station.id}`, { method: station.favori ? "DELETE" : "POST" });
       chargerStations(); chargerFavoris();
     };
+    ligne.querySelector(".coche-courbe").onchange = (e) => basculerCourbe(station.id, e.target.checked);
     corps.appendChild(ligne);
   });
 }
@@ -1152,9 +1314,17 @@ async function chargerEtat() {
     return;
   }
   const quand = retard === 0 ? "aujourd'hui" : (retard === 1 ? "hier" : `il y a ${retard} jours`);
-  zone.textContent = `${donnees.nb_stations.toLocaleString("fr-FR")} stations · relevé ${quand}`;
+  zone.textContent = `${donnees.nb_stations.toLocaleString("fr-FR")} stations`
+    + (donnees.nb_enseignes ? ` · ${donnees.nb_enseignes.toLocaleString("fr-FR")} avec enseigne` : "")
+    + ` · prix relevés ${quand} (${dateLongue(donnees.derniere_collecte)})`
+    + ` · prochaine mise à jour à ${donnees.heure_collecte} h`;
   if (donnees.collecte_en_cours) {
     zone.textContent += " · mise à jour en cours…";
+  }
+  // Ce que le diagnostic estime manquant : mieux vaut le dire que laisser
+  // l'utilisateur deviner pourquoi une colonne est vide.
+  if (donnees.manques && donnees.manques.length && !donnees.collecte_en_cours) {
+    zone.textContent += " · " + donnees.manques.join(" ; ");
   }
   // Au-delà de deux jours, la collecte automatique est probablement en panne :
   // mieux vaut le signaler que d'afficher des chiffres périmés sans le dire.
