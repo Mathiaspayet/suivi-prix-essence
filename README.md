@@ -3,7 +3,7 @@
 Une petite application web, à héberger chez soi, qui répond à une question
 précise : **faut-il faire le plein maintenant, ou attendre ?**
 
-Elle fait trois choses :
+Elle fait cinq choses :
 
 - **comparer** les stations autour d'une commune, sur une carte ou en liste,
   de la moins chère à la plus chère, avec leur enseigne ;
@@ -75,6 +75,12 @@ jugées.
 
 Autrement dit : **à sept jours, l'outil se trompe environ une fois sur cinq.**
 À quatorze, une fois sur trois. À trente, il se tait.
+
+Encore ces erreurs ne se répartissent-elles pas régulièrement : elles arrivent
+par séries de plusieurs jours. Un second modèle apprend à reconnaître ces
+périodes et l'application y relève son exigence avant de se prononcer, en
+l'affichant (« ⚠ Période instable »). Le détail est plus bas, mais le principe
+tient en une phrase : **l'outil sait à peu près quand il ne sait pas.**
 
 ### Ce n'est pas le baril qu'il faut regarder
 
@@ -172,6 +178,104 @@ bon côté des prévisions qui hésitaient. Le palmarès affiche désormais la
 confiance annoncée en regard de la réussite constatée : les deux colonnes
 doivent rester proches, et c'est vérifiable d'un coup d'œil.
 
+### Un modèle plus puissant ferait-il mieux ?
+
+La question mérite d'être posée franchement, et elle a été traitée comme les
+autres : en mesurant. Deux familles bien plus lourdes que la forêt aléatoire
+ont concouru sur les mêmes données, avec la même validation.
+
+**Réseaux de neurones.** Un réseau dense et un réseau récurrent (LSTM), les
+deux architectures que la littérature applique aux séries de prix.
+
+| Cas | Forêt | Dense | LSTM |
+|-----|-------|-------|------|
+| Gazole 7 j | **77,2 %** | 74,3 % | 70,8 % |
+| Gazole 30 j | **63,9 %** | 54,4 % | 60,6 % |
+| SP95 7 j | **84,3 %** | 83,1 % | 78,7 % |
+| SP95 30 j | **63,8 %** | 56,5 % | 56,4 % |
+| E10 7 j | **78,9 %** | 75,9 % | 72,1 % |
+| E10 30 j | **61,0 %** | 55,7 % | 54,3 % |
+
+La forêt gagne les six cas, souvent largement. Ce n'est pas une surprise : un
+réseau de neurones réclame des dizaines de milliers d'exemples pour donner sa
+mesure. Il y en a ici deux mille cinq cents, et vingt variables.
+
+**Modèle de fondation.** Chronos-Bolt, pré-entraîné par Amazon sur des
+milliards de points de séries temporelles, appliqué tel quel — sans le moindre
+apprentissage sur les données de ce projet.
+
+| Cas | Chronos | « rien ne change » | Forêt |
+|-----|---------|--------------------|-------|
+| Gazole 7 j | 73,5 % | 73,5 % | **79,4 %** |
+| Gazole 30 j | 59,5 % | 51,4 % | **62,2 %** |
+| SP95 7 j | 64,5 % | 67,7 % | **71,0 %** |
+| SP95 30 j | 54,5 % | **57,6 %** | 51,5 % |
+
+Il ne bat la forêt nulle part, et ne bat le naïf qu'une fois sur deux. La
+raison est structurelle plutôt que technique : Chronos ne voit que la série des
+prix à la pompe. Il ignore la cotation de gros — c'est-à-dire précisément
+l'information qui a apporté le gain le plus net de ce projet.
+
+Autrement dit, **la taille du modèle n'est pas ce qui limite.** Ce qui limite,
+c'est la quantité d'information disponible, et elle est modeste : sept ans de
+prix quotidiens et une poignée de cotations. Aucune architecture n'invente une
+information absente des données.
+
+### Les erreurs n'arrivent pas au hasard, et cela se voit venir
+
+Une observation a ouvert la seule piste qui ait abouti. En comptant les erreurs
+du modèle jour après jour, on trouve des **séries de quinze jours consécutifs
+faux**, là où l'indépendance en prédirait quatre. Cinq épisodes de ce genre
+concentrent 36 % de toutes les erreurs.
+
+L'hypothèse d'une cause fiscale — les hausses de taxes de janvier — a été
+testée puis rejetée : janvier est au contraire le mois le plus facile (13,7 %
+d'erreurs), le pire étant mai (35,4 %).
+
+Il existe donc des périodes où le modèle est durablement à côté. Reste à les
+reconnaître à l'avance, et c'est le rôle d'un **second modèle entraîné non pas
+sur les prix, mais sur les erreurs du premier** — à partir des mêmes variables,
+toutes connues au moment de prévoir.
+
+Contrôlé comme le reste, en le réajustant à chaque fenêtre et en le jugeant sur
+la suivante, comme il le serait en service. Voici ce que le programme lui-même
+a mesuré et décidé au dernier entraînement :
+
+| Cas | Écart médian | Fenêtres réussies | Verdict |
+|-----|--------------|-------------------|---------|
+| Gazole 7 j | **+22,8 pt** | 75 % | **retenu** |
+| E10 7 j | **+20,0 pt** | 82 % | **retenu** |
+| SP98 7 j | **+16,5 pt** | 70 % | **retenu** |
+| E10 14 j | **+13,3 pt** | 69 % | **retenu** |
+| Gazole 30 j | +16,7 pt | 57 % | écarté — irrégulier |
+| SP98 14 j | +16,0 pt | 54 % | écarté — irrégulier |
+| SP98 30 j | +13,3 pt | 57 % | écarté — irrégulier |
+| Gazole 14 j | +11,7 pt | 57 % | écarté — irrégulier |
+| SP95 7 j | +6,7 pt | 67 % | écarté — écart trop faible |
+| SP95 30 j | +6,7 pt | 62 % | écarté |
+| SP95 14 j | +0,0 pt | 33 % | écarté |
+| E10 30 j | −5,0 pt | 43 % | écarté |
+
+*L'écart est le taux d'erreur des jours signalés risqués moins celui des jours
+jugés sûrs. Un signal utilisable demande un écart franc **et** régulier : au
+moins 8 points, et deux fenêtres sur trois réussies. Les deux conditions
+comptent — le gazole à trente jours affiche un écart de 17 points, mais une
+fenêtre sur deux seulement, ce qui ne vaut guère mieux qu'un tirage au sort.*
+
+Sur le gazole à sept jours, les jours signalés se trompent vingt-trois points
+plus souvent que les autres, et le signal tient sur trois fenêtres sur quatre.
+Quatre cas sur douze franchissent la barre ; les huit autres sont écartés,
+exactement comme une méthode battue en validation. L'E85 et le GPLc n'y
+figurent pas : ils tournent à la règle de tendance, qui n'a pas d'erreurs
+à donner à apprendre.
+
+Ce veilleur ne rend pas la prévision meilleure. Il la rend plus prudente quand
+il le faut : les jours signalés, l'outil n'ose une recommandation qu'au-delà de
+72 % de probabilité au lieu de 62 %, et la page l'annonce en clair
+(« ⚠ Période instable »). **Savoir quand se taire** est le seul progrès que
+cette campagne de mesures ait produit — et il ne doit rien à un modèle plus
+gros.
+
 ### Pistes explorées et écartées
 
 Consignées ici pour éviter de refaire le trajet. Toutes ont été mesurées, pas
@@ -188,6 +292,9 @@ supposées.
 | Dispersion entre régions comme signal | neutre (±0,3 point) |
 | Correction d'erreur asymétrique, bande d'inaction | +0,2 point sur 25 fenêtres |
 | Analyse technique (RSI, MACD, Bollinger) | +0,2 point, gagne une fenêtre sur deux |
+| **Réseaux de neurones (dense, LSTM)** | **perd les 6 cas face à la forêt** |
+| **Modèle de fondation Chronos-Bolt** | **ne bat ni la forêt, ni « rien ne change »** |
+| Cause fiscale des erreurs groupées | janvier est le mois le plus **facile** |
 | Effets de calendrier | −0,1 point |
 | Tensions de raffinage | −1,1 point |
 | **Une enseigne qui baisse en premier** | **artefact : avance réelle de 0 jour** |

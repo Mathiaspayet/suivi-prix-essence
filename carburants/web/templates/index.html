@@ -25,6 +25,7 @@
   --serie-2:        #eb6834;   /* matière première */
   --bien:           #0ca30c;
   --alerte:         #fab219;
+  --alerte-texte:   #8a5a00;   /* le jaune d'alerte est illisible en texte sur fond clair */
   --critique:       #d03b3b;
   /* Bande entre les deux courbes du graphique de répercussion, teintée selon
      le sens du retard : le prix payé est-il au-dessus ou en dessous de ce que
@@ -42,6 +43,7 @@
     --grille:  #2c2c2a;  --axe:     #383835;
     --bordure: rgba(255,255,255,0.10);
     --serie-1: #3987e5;  --serie-2: #d95926;
+    --alerte-texte: #fab219;
     --bande-defavorable: rgba(208,59,59,0.28);
     --bande-favorable:   rgba(12,163,12,0.24);
   }
@@ -53,6 +55,7 @@
   --grille:  #2c2c2a;  --axe:     #383835;
   --bordure: rgba(255,255,255,0.10);
   --serie-1: #3987e5;  --serie-2: #d95926;
+  --alerte-texte: #fab219;
   --bande-defavorable: rgba(208,59,59,0.28);
   --bande-favorable:   rgba(12,163,12,0.24);
 }
@@ -100,6 +103,7 @@ h2 { font-size: 15px; margin: 0 0 12px; color: var(--encre-2); font-weight: 600;
 .tuile .horizon { font-size: 12px; color: var(--encre-3); text-transform: uppercase; letter-spacing: 0.04em; }
 .tuile .sens { font-size: 17px; font-weight: 600; margin: 6px 0 2px; }
 .tuile .fiabilite { font-size: 12px; color: var(--encre-3); }
+.tuile .instable { font-size: 12px; color: var(--alerte-texte); margin-top: 6px; }
 .jauge { height: 4px; background: var(--grille); border-radius: 2px; overflow: hidden; margin-top: 9px; }
 .jauge > span { display: block; height: 100%; border-radius: 2px; }
 
@@ -589,6 +593,10 @@ function construirePlages() {
 }
 
 /* ---------- Prévisions ---------- */
+/* Noms des méthodes tels qu'ils sortent de l'entraînement, traduits pour la
+   page. Le programme en fait concourir trois et retient celle qui a gagné. */
+const NOM_METHODE = { foret: "forêt aléatoire", logistique: "régression logistique" };
+
 const COULEUR_CONSEIL = {
   faire_le_plein: "--critique", attendre: "--bien",
   indecis: "--alerte", peu_fiable: "--encre-3",
@@ -644,7 +652,11 @@ async function chargerPrevisions() {
       ? `À cette échéance, le modèle n'a vu juste que ${court.justesse_pct} % du temps. `
         + `Trop peu pour vous conseiller quoi que ce soit.`
       : `Sous 7 jours : ${court.probabilite_hausse.toFixed(0)} % de probabilité de hausse, `
-        + `soit environ ${centimes(court.variation_probable_cts)} par litre.`;
+        + `soit environ ${centimes(court.variation_probable_cts)} par litre.`
+        + (court.jour_risque
+            ? ` Attention : la période ressemble à celles où le modèle se trompe `
+              + `le plus souvent, aussi ne se prononce-t-il ici qu'à contrecœur.`
+            : ``);
   document.getElementById("prix-actuel").textContent = euros(court.prix_actuel);
 
   valides.forEach((p) => {
@@ -666,6 +678,8 @@ async function chargerPrevisions() {
         p.conseil === "peu_fiable" ? "Le modèle se trompe trop souvent ici"
         : p.conseil === "indecis" ? "Pas d'écart net attendu"
         : centimes(p.variation_probable_cts) + " / L &nbsp;·&nbsp; vers " + euros(p.prix_prevu)}</div>
+      ${p.jour_risque && p.conseil !== "peu_fiable"
+        ? `<div class="instable">⚠ Période instable — exigence relevée</div>` : ""}
       ${p.conseil === "peu_fiable" ? "" : `
       <div class="jauge"><span style="width:${p.probabilite_hausse}%;background:${couleurTuile}"></span></div>
       <div class="fiabilite" style="margin-top:6px">${p.probabilite_hausse.toFixed(0)} % de probabilité de hausse</div>`}`;
@@ -673,10 +687,16 @@ async function chargerPrevisions() {
   });
 
   const methodes = [...new Set(valides.map((p) => p.methode))];
-  const nomMethode = methodes.length === 1
-    ? (methodes[0] === "modele" ? "un modèle statistique entraîné sur 2019-aujourd'hui"
-                                : "la règle de tendance, qui s'est révélée la plus fiable pour ce carburant")
-    : "un modèle statistique pour certains horizons, la règle de tendance pour les autres";
+  const statistiques = methodes.filter((m) => m !== "momentum");
+  const nomMethode =
+    statistiques.length === 0
+      ? "la règle de tendance, qui s'est révélée la plus fiable pour ce carburant"
+      : statistiques.length === methodes.length
+        ? (statistiques.length === 1
+            ? `un modèle statistique (${NOM_METHODE[statistiques[0]] || statistiques[0]}) `
+              + `entraîné sur 2019-aujourd'hui`
+            : "des modèles statistiques entraînés sur 2019-aujourd'hui")
+        : "un modèle statistique pour certains horizons, la règle de tendance pour les autres";
   const surPalmares = valides.filter((p) => p.justesse_source === "palmarès");
   document.getElementById("note-methode").textContent =
     `Prévision produite par ${nomMethode}. `
@@ -686,7 +706,13 @@ async function chargerPrevisions() {
           + `et non une moyenne de laboratoire.`
         : `Les pourcentages proviennent de la validation, sur des périodes que le `
           + `modèle n'avait jamais vues.`)
-    + ` L'outil annonce le sens de la variation, jamais le prix exact.`;
+    + ` L'outil annonce le sens de la variation, jamais le prix exact.`
+    + (valides.some((p) => p.jour_risque && p.conseil !== "peu_fiable")
+        ? ` Les échéances marquées « période instable » ressemblent à celles où le `
+          + `modèle s'est trompé par le passé : ses erreurs ne tombent pas au hasard, `
+          + `elles arrivent par séries. Il n'y conseille donc que si la probabilité `
+          + `dépasse 72 %, au lieu de 62 % en temps normal.`
+        : ``);
   document.getElementById("avertissement").textContent =
     `Cet outil annonce une tendance, pas une certitude : à 7 jours il se trompe environ ` +
     `une fois sur quatre, et davantage à 30 jours. Aucun modèle ne peut anticiper une ` +

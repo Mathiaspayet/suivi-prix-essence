@@ -117,6 +117,8 @@ def valider(carburant, horizon, nb_plis=6):
     # réellement produit. Elles serviront à corriger la confiance annoncée.
     hors_echantillon = {nom: {"proba": [], "verite": []} for nom in noms}
     hors_echantillon["momentum"] = {"proba": [], "verite": []}
+    # Erreurs du modèle et situations où elles se produisent, pour le veilleur.
+    erreurs_veilleur = {nom: {"indices": [], "erreur": []} for nom in noms}
 
     for pli in range(nb_plis):
         fin_entrainement = taille_pli * (pli + 1)
@@ -142,6 +144,10 @@ def valider(carburant, horizon, nb_plis=6):
             justesse[nom].append(float(((probabilites >= 0.5).astype(int) == verite).mean()))
             hors_echantillon[nom]["proba"].extend(probabilites.tolist())
             hors_echantillon[nom]["verite"].extend(verite.tolist())
+            erreurs_veilleur[nom]["indices"].extend(X_test.index[bouge].tolist())
+            erreurs_veilleur[nom]["erreur"].extend(
+                ((probabilites >= 0.5).astype(int) != verite).astype(int).tolist()
+            )
 
         monte = (X_test["var_pompe_7j"][bouge] > 0).astype(int)
         justesse["momentum"].append(float((monte == verite).mean()))
@@ -175,6 +181,8 @@ def valider(carburant, horizon, nb_plis=6):
     for nom in noms:
         resume[f"justesse_{nom}"] = float(np.mean(justesse[nom])) * 100
     resume["_hors_echantillon"] = hors_echantillon
+    resume["_erreurs_veilleur"] = erreurs_veilleur
+    resume["_tableau"] = X
     return resume
 
 
@@ -202,6 +210,59 @@ def _ecart_calibration(probabilites, verites):
     if not ecarts:
         return float("nan")
     return float(np.average(ecarts, weights=effectifs))
+
+
+def _ajuster_veilleur(X, erreurs):
+    """Entraîne un second modèle à reconnaître les jours où le premier échoue.
+
+    L'idée ne vise pas une meilleure prévision mais une meilleure honnêteté :
+    les erreurs ne sont pas dispersées au hasard, elles se groupent en
+    épisodes — quinze jours d'affilée là où l'indépendance en prédirait
+    quatre. Il existe donc des périodes où le modèle est durablement à côté,
+    et les reconnaître permet de se montrer plus prudent ces jours-là.
+
+    Le veilleur n'est conservé que s'il fait ses preuves sur plusieurs fenêtres
+    successives : un écart moyen flatteur peut n'être dû qu'à deux fenêtres
+    exceptionnelles.
+    """
+    erreurs = np.asarray(erreurs)
+    if len(X) < 500 or len(set(erreurs)) < 2:
+        return None, None
+
+    ecarts, pas = [], 120
+    for depart in range(300, len(X) - pas, pas):
+        veilleur = RandomForestClassifier(
+            n_estimators=250, max_depth=4, min_samples_leaf=60,
+            random_state=0, n_jobs=-1,
+        )
+        veilleur.fit(X.iloc[:depart], erreurs[:depart])
+        bloc = slice(depart, depart + pas)
+        risque = veilleur.predict_proba(X.iloc[bloc])[:, 1]
+        vrai = erreurs[bloc]
+        if len(set(vrai)) < 2:
+            continue
+        haut, bas = np.quantile(risque, 0.75), np.quantile(risque, 0.25)
+        if (risque >= haut).sum() < 10 or (risque <= bas).sum() < 10:
+            continue
+        ecarts.append(vrai[risque >= haut].mean() * 100
+                      - vrai[risque <= bas].mean() * 100)
+
+    if len(ecarts) < 4:
+        return None, None
+    ecart_median = float(np.median(ecarts))
+    regularite = float(np.mean(np.array(ecarts) > 5))
+    mesures = {"ecart": round(ecart_median, 1), "regularite": round(regularite * 100)}
+    if ecart_median < ECART_MINIMAL_VEILLEUR or regularite < REGULARITE_MINIMALE_VEILLEUR:
+        return None, mesures
+
+    final = RandomForestClassifier(n_estimators=250, max_depth=4, min_samples_leaf=60,
+                                   random_state=0, n_jobs=-1)
+    final.fit(X, erreurs)
+    final.n_jobs = 1  # une seule ligne à prédire : le parallélisme y coûte plus qu'il ne rend
+    # Seuil au-delà duquel la journée est jugée risquée : le quart le plus
+    # exposé, mesuré sur l'historique du veilleur lui-même.
+    seuil = float(np.quantile(final.predict_proba(X)[:, 1], 0.75))
+    return {"modele": final, "seuil": seuil}, mesures
 
 
 def _ajuster_calibrateur(probabilites, verites):
@@ -291,6 +352,12 @@ def _validation_perimee(paquet):
     """Dit s'il est temps de refaire concourir les méthodes."""
     if paquet is None or "valide_le" not in paquet:
         return True
+    if "veilleur" not in paquet:
+        # Modèle enregistré avant l'arrivée du veilleur d'erreurs. Celui-ci ne
+        # s'obtient qu'en revalidant, puisqu'il s'entraîne sur les erreurs
+        # relevées pendant la validation : sans cela, la nouveauté n'arriverait
+        # sur l'installation qu'au bout d'un mois.
+        return True
     age = (dt.date.today() - dt.date.fromisoformat(paquet["valide_le"])).days
     return age >= config.JOURS_ENTRE_VALIDATIONS
 
@@ -327,12 +394,25 @@ def entrainer(carburant, horizon, revalider=None, journal=print):
             observations.get("proba", []), observations.get("verite", [])
         )
         mesures["ecart_calibration"] = None if ecart != ecart else round(ecart, 1)
+
+        journal_erreurs = mesures.pop("_erreurs_veilleur", {}).get(methode, {})
+        tableau_complet = mesures.pop("_tableau", None)
+        veilleur, mesures_veilleur = None, None
+        if journal_erreurs.get("indices") and tableau_complet is not None:
+            veilleur, mesures_veilleur = _ajuster_veilleur(
+                tableau_complet.loc[journal_erreurs["indices"]],
+                journal_erreurs["erreur"],
+            )
+        mesures["veilleur"] = mesures_veilleur
     else:
         mesures = dict(precedent["mesures"])
         methode = precedent["methode"]
         valide_le = precedent["valide_le"]
         calibrateur = precedent.get("calibrateur")
+        veilleur = precedent.get("veilleur")
     mesures.pop("_hors_echantillon", None)
+    mesures.pop("_erreurs_veilleur", None)
+    mesures.pop("_tableau", None)
     mesures["methode"] = methode
     mesures["justesse_retenue"] = (
         mesures["justesse_momentum"] if methode == "momentum"
@@ -365,6 +445,9 @@ def entrainer(carburant, horizon, revalider=None, journal=print):
                 # Correcteur de confiance : sans lui, la page annonçait 90 %
                 # là où elle réussissait 60 % du temps.
                 "calibrateur": calibrateur,
+                # Veilleur d'erreurs : reconnaît les journées où le modèle a
+                # l'habitude de se tromper, pour se montrer plus exigeant.
+                "veilleur": veilleur,
                 "entraine_le": dt.date.today().isoformat(),
                 "valide_le": valide_le,
             },
@@ -375,11 +458,24 @@ def entrainer(carburant, horizon, revalider=None, journal=print):
         detail = " / ".join(
             f"{nom} {mesures[f'justesse_{nom}']:.1f}" for nom in fabriquer_candidats()
         )
+        if veilleur is not None:
+            note_veilleur = (
+                f", veilleur retenu (+{mesures['veilleur']['ecart']} pt sur "
+                f"{mesures['veilleur']['regularite']}% des fenêtres)"
+            )
+        elif mesures.get("veilleur"):
+            note_veilleur = (
+                f", veilleur écarté ({mesures['veilleur']['ecart']:+} pt sur "
+                f"{mesures['veilleur']['regularite']}% des fenêtres)"
+            )
+        else:
+            note_veilleur = ""
         journal(
             f"  {carburant:7} {horizon:2}j : {methode:10} retenu → "
             f"{mesures['justesse_retenue']:.1f}% de bon sens "
             f"({detail} / tendance {mesures['justesse_momentum']:.1f} "
             f"/ biais {mesures['justesse_toujours_hausse']:.1f})"
+            f"{note_veilleur}"
         )
     else:
         journal(
@@ -457,6 +553,18 @@ def entrainer_tout(carburants=None, revalider=None, journal=print):
 # par conseiller à pile ou face.
 SEUIL_RECOMMANDATION = 0.62
 
+# Exigence relevée les jours que le modèle lui-même juge incertains. Il ne
+# s'interdit pas de parler, mais demande davantage de conviction avant de
+# conseiller quoi que ce soit.
+SEUIL_RECOMMANDATION_JOUR_RISQUE = 0.72
+
+# Un veilleur d'erreurs n'est conservé que s'il sépare franchement et
+# régulièrement les jours sûrs des jours risqués. Mesuré sur le gazole à sept
+# jours, l'écart médian atteint vingt-trois points dans quatre fenêtres sur
+# cinq ; sur le SP95 au même horizon, il n'y a rien à retenir.
+ECART_MINIMAL_VEILLEUR = 8.0
+REGULARITE_MINIMALE_VEILLEUR = 0.65
+
 # En dessous de cette justesse, l'outil se tait. Annoncer une tendance dont on
 # sait qu'elle se vérifie six fois sur dix rendrait un service douteux : autant
 # dire clairement qu'on ne sait pas.
@@ -532,6 +640,15 @@ def prevoir(carburant, horizon):
         _appliquer_calibrateur(paquet.get("calibrateur"), [probabilite_hausse])[0]
     )
 
+    # Journée à risque ? Un second modèle, entraîné sur les erreurs passées du
+    # premier, reconnaît les périodes où celui-ci se trompe durablement. Il
+    # n'existe que là où il a fait ses preuves ; ailleurs, `veilleur` est vide.
+    jour_risque = False
+    veilleur = paquet.get("veilleur")
+    if veilleur is not None:
+        risque = float(veilleur["modele"].predict_proba(dernier_jour)[0, 1])
+        jour_risque = risque >= veilleur["seuil"]
+
     prix_actuel = float(tableau["prix"].loc[dates[-1]])
     amplitude = mesures["amplitude_mediane_cts"] / 100
     sens = 1 if probabilite_hausse >= 0.5 else -1
@@ -549,14 +666,20 @@ def prevoir(carburant, horizon):
     else:
         justesse, source = mesures["justesse_retenue"], "validation"
 
+    # Les jours signalés à risque, on exige une probabilité plus franche avant
+    # de conseiller quoi que ce soit : mieux vaut se taire que se tromper.
+    seuil = SEUIL_RECOMMANDATION_JOUR_RISQUE if jour_risque else SEUIL_RECOMMANDATION
+
     if justesse is not None and justesse < FIABILITE_MINIMALE:
         # Trop peu fiable pour se prononcer, quelle que soit la probabilité
         # calculée : mieux vaut l'avouer que de laisser croire à une prévision.
         conseil, resume = "peu_fiable", "Trop imprévisible à cette échéance"
-    elif probabilite_hausse >= SEUIL_RECOMMANDATION:
+    elif probabilite_hausse >= seuil:
         conseil, resume = "faire_le_plein", "Faites le plein maintenant"
-    elif probabilite_hausse <= 1 - SEUIL_RECOMMANDATION:
+    elif probabilite_hausse <= 1 - seuil:
         conseil, resume = "attendre", "Vous pouvez attendre"
+    elif jour_risque:
+        conseil, resume = "indecis", "Période instable, prudence"
     else:
         conseil, resume = "indecis", "Aucune tendance nette"
 
@@ -578,6 +701,7 @@ def prevoir(carburant, horizon):
         "justesse_validation_pct": round(mesures["justesse_retenue"], 1),
         "ecart_calibration": mesures.get("ecart_calibration"),
         "nb_previsions_jugees": bilan["nb_jugees"],
+        "jour_risque": jour_risque,
         "entraine_le": paquet["entraine_le"],
     }
     # On écarte les entrées devenues obsolètes — celles calculées sur des
