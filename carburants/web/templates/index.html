@@ -186,6 +186,16 @@ button.lien { background: none; border: none; color: var(--serie-1); cursor: poi
 .message-reglages.mauvais { color: var(--critique); }
 button.secondaire { font: inherit; padding: 8px 16px; border-radius: 8px;
   border: 1px solid var(--bordure); background: var(--surface); color: var(--encre); cursor: pointer; }
+.enseigne { font-weight: 600; color: var(--encre); }
+.badge-autoroute { font-size: 10.5px; padding: 1px 6px; border-radius: 999px;
+  border: 1px solid var(--bordure); color: var(--encre-3); margin-left: 6px; }
+/* Barre inscrite dans la cellule : elle donne l'ampleur d'un coup d'œil, là où
+   une colonne de nombres demande de comparer mentalement chaque ligne. */
+.barre-ecart { position: relative; }
+.barre-ecart > span { position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  height: 15px; border-radius: 3px; opacity: 0.22; }
+.barre-ecart > em { position: relative; font-style: normal; font-variant-numeric: tabular-nums; }
+
 .avertissement { font-size: 12.5px; color: var(--encre-2); background: rgba(250,178,25,0.12);
   border: 1px solid rgba(250,178,25,0.35); border-radius: 8px; padding: 10px 12px; margin: 0; }
 
@@ -349,6 +359,14 @@ footer a { color: inherit; }
     <p class="vide" id="stations-vide">Indiquez une commune pour comparer les stations alentour.</p>
   </section>
 
+  <!-- Enseignes -->
+  <section class="carte">
+    <h2>Quelle enseigne pratique les prix les plus bas ?</h2>
+    <p class="encart" id="resume-enseignes">Chargement…</p>
+    <div class="defilement"><table id="tableau-enseignes"><tbody></tbody></table></div>
+    <p class="encart" id="note-enseignes"></p>
+  </section>
+
   <!-- Palmarès -->
   <section class="carte">
     <h2>Le modèle a-t-il vu juste ?</h2>
@@ -367,7 +385,10 @@ footer a { color: inherit; }
     <p>
       Prix issus du fichier officiel des prix des carburants (data.economie.gouv.fr,
       ~9 800 stations de France métropolitaine). Cours du Brent et taux de change :
-      FRED, Banque fédérale de réserve de Saint-Louis.
+      FRED, Banque fédérale de réserve de Saint-Louis. Enseignes : référentiel
+      communautaire enrichi par
+      <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>,
+      publié sur data.gouv.fr sous licence ODbL.
     </p>
     <p id="avertissement"></p>
   </footer>
@@ -882,8 +903,9 @@ function dessinerCarte(stations) {
       .filter(([nom]) => nom !== carburantActif)
       .map(([nom, v]) => `${nom} ${euros(v)}`).join(" · ");
     marqueur.bindPopup(
-      `<b>${carburantActif} ${euros(s.prix)}</b><br>`
-      + `${s.adresse || ""}<br>${s.ville} ${s.code_postal}<br>`
+      `<b>${s.enseigne || "Station"} — ${euros(s.prix)}</b><br>`
+      + `${s.adresse || ""}<br>${s.ville} ${s.code_postal}`
+      + (s.sur_autoroute ? " · autoroute" : "") + `<br>`
       + `<span style="color:#898781">à ${s.distance_km.toFixed(1).replace(".", ",")} km`
       + `${ecart ? ` · ${ecart > 0 ? "+" : ""}${ecart.toFixed(1).replace(".", ",")} cts / médiane` : ""}</span>`
       + (autres ? `<br><span style="color:#898781">${autres}</span>` : "")
@@ -977,13 +999,15 @@ async function chargerStations() {
     + `${s.ecart_cts.toFixed(1).replace(".", ",")} centimes par litre, `
     + `soit ${s.economie_plein_50l.toFixed(2).replace(".", ",")} € sur un plein de 50 litres.`;
 
-  corps.innerHTML = `<tr><th class="nombre">Prix</th><th>Station</th><th>Commune</th>
+  corps.innerHTML = `<tr><th class="nombre">Prix</th><th>Enseigne</th><th>Adresse</th><th>Commune</th>
                      <th class="nombre">Distance</th><th></th></tr>`;
   donnees.resultats.forEach((station, rang) => {
     const ligne = document.createElement("tr");
     if (rang === 0) ligne.className = "moins-cher";
     ligne.innerHTML = `
       <td class="nombre">${euros(station.prix)}</td>
+      <td><span class="enseigne">${station.enseigne || "—"}</span>${
+        station.sur_autoroute ? '<span class="badge-autoroute">autoroute</span>' : ""}</td>
       <td>${station.adresse || "—"}</td>
       <td>${station.ville} <span class="etiquette">${station.code_postal}</span></td>
       <td class="nombre">${station.distance_km.toFixed(1).replace(".", ",")} km</td>
@@ -1005,7 +1029,7 @@ async function chargerFavoris() {
   corps.innerHTML = "";
   if (!donnees.resultats.length) { vide.hidden = false; return; }
   vide.hidden = true;
-  corps.innerHTML = `<tr><th class="nombre">Prix</th><th>Station</th><th>Commune</th>
+  corps.innerHTML = `<tr><th class="nombre">Prix</th><th>Enseigne</th><th>Adresse</th><th>Commune</th>
                      <th class="nombre">7 jours</th><th></th></tr>`;
   donnees.resultats.forEach((f) => {
     const ligne = document.createElement("tr");
@@ -1013,6 +1037,7 @@ async function chargerFavoris() {
     const couleur = variation == null ? "--encre-3" : (variation > 0 ? "--critique" : (variation < 0 ? "--bien" : "--encre-3"));
     ligne.innerHTML = `
       <td class="nombre">${euros(f.prix_actuel)}</td>
+      <td><span class="enseigne">${f.enseigne || "—"}</span></td>
       <td>${f.adresse || "—"}</td>
       <td>${f.ville} <span class="etiquette">${f.code_postal}</span></td>
       <td class="nombre" style="color:${encre(couleur)}">${variation == null ? "—" : centimes(variation)}</td>
@@ -1023,6 +1048,65 @@ async function chargerFavoris() {
     };
     corps.appendChild(ligne);
   });
+}
+
+/* ---------- Enseignes ---------- */
+async function chargerEnseignes() {
+  const d = await (await fetch(`/api/enseignes?carburant=${encodeURIComponent(carburantActif)}`)).json();
+  const resume = document.getElementById("resume-enseignes");
+  const corps = document.querySelector("#tableau-enseignes tbody");
+  const note = document.getElementById("note-enseignes");
+  corps.innerHTML = "";
+
+  if (!d.enseignes.length) {
+    resume.textContent = "Les enseignes ne sont pas encore renseignées. "
+      + "Elles le seront à la prochaine collecte.";
+    note.textContent = "";
+    return;
+  }
+  const premier = d.enseignes[0], dernier = d.enseignes[d.enseignes.length - 1];
+  resume.textContent =
+    `${premier.enseigne} affiche le ${carburantActif.toLowerCase()} le moins cher `
+    + `(${euros(premier.prix_median)}), ${dernier.enseigne} le plus cher `
+    + `(${euros(dernier.prix_median)}). Soit ${d.ecart_total_cts.toFixed(1).replace(".", ",")} `
+    + `centimes par litre d'écart, ou ${dernier.surcout_plein_50l.toFixed(2).replace(".", ",")} € `
+    + `sur un plein de 50 litres. Stations d'autoroute exclues.`;
+
+  const maxi = dernier.surcout_cts || 1;
+  corps.innerHTML = `<tr><th></th><th>Enseigne</th><th class="nombre">Prix médian</th>
+    <th class="nombre">Surcoût</th><th class="nombre">par plein</th>
+    <th class="nombre">Réactivité</th><th class="nombre">Stations</th></tr>`;
+  d.enseignes.forEach((e) => {
+    const ligne = document.createElement("tr");
+    if (e.rang === 1) ligne.className = "moins-cher";
+    const largeur = Math.max(2, (e.surcout_cts / maxi) * 100);
+    const couleur = e.surcout_cts < 3 ? "--bien" : (e.surcout_cts < 15 ? "--alerte" : "--critique");
+    ligne.innerHTML = `
+      <td class="nombre" style="color:var(--encre-3)">${e.rang}</td>
+      <td><span class="enseigne">${e.enseigne}</span></td>
+      <td class="nombre">${euros(e.prix_median)}</td>
+      <td class="nombre barre-ecart" style="min-width:110px">
+        <span style="width:${largeur}%;background:${encre(couleur)}"></span>
+        <em>${e.surcout_cts > 0 ? "+" : ""}${e.surcout_cts.toFixed(1).replace(".", ",")} cts</em></td>
+      <td class="nombre">${e.surcout_plein_50l > 0
+        ? "+" + e.surcout_plein_50l.toFixed(2).replace(".", ",") + " €" : "—"}</td>
+      <td class="nombre" style="color:var(--encre-3)">${e.agitation_cts.toFixed(2).replace(".", ",")}</td>
+      <td class="nombre" style="color:var(--encre-3)">${e.nb_stations}</td>`;
+    corps.appendChild(ligne);
+  });
+
+  note.innerHTML =
+    `<b>Ce que mesure le surcoût.</b> Les taxes sont identiques pour toutes les `
+    + `enseignes, et le carburant de gros s'achète à peu près au même prix : l'écart `
+    + `entre deux réseaux est donc un écart de marge. Sur les `
+    + `${dernier.surcout_cts.toFixed(1).replace(".", ",")} centimes qui séparent `
+    + `${premier.enseigne} de ${dernier.enseigne}, `
+    + `${dernier.marge_supplementaire_cts.toFixed(1).replace(".", ",")} reviennent `
+    + `réellement au distributeur — le reste part en TVA, qui frappe aussi la marge.`
+    + `<br><br><b>La réactivité</b> est la variation moyenne d'un jour sur l'autre, en `
+    + `centimes. Elle ne dit pas qui baisse en premier : mesuré sur trente épisodes `
+    + `de baisse depuis 2019, aucune enseigne ne devance les autres. Une enseigne `
+    + `réactive ajuste simplement plus souvent, à la hausse comme à la baisse.`;
 }
 
 /* ---------- Palmarès ---------- */
@@ -1080,7 +1164,8 @@ async function chargerEtat() {
 
 /* ---------- Démarrage ---------- */
 function toutRafraichir() {
-  chargerPrevisions(); chargerGraphique(); chargerStations(); chargerFavoris(); chargerPalmares();
+  chargerPrevisions(); chargerGraphique(); chargerStations();
+  chargerFavoris(); chargerPalmares(); chargerEnseignes();
 }
 let minuterie;
 document.getElementById("commune").addEventListener("input", () => {
@@ -1112,7 +1197,8 @@ async function appliquerReglages() {
 
 construireOnglets(); construireVues(); construirePlages();
 construireAffichage(); chargerEtat();
-chargerPrevisions(); chargerGraphique(); chargerFavoris(); chargerPalmares();
+chargerPrevisions(); chargerGraphique(); chargerFavoris();
+chargerPalmares(); chargerEnseignes();
 appliquerReglages();
 </script>
 </body>

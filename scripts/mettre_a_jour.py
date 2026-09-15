@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from carburants import alertes, base, config
-from carburants.sources import historique, marche, stations
+from carburants.sources import enseignes, historique, marche, stations
 
 
 def mettre_a_jour(journal=print):
@@ -29,6 +29,7 @@ def mettre_a_jour(journal=print):
     for intitule, action in [
         ("prix des stations", lambda: stations.rafraichir(journal)),
         ("données de marché", lambda: marche.rafraichir(depuis="2018-01-01", journal=journal)),
+        ("enseignes", lambda: enseignes.rafraichir(journal)),
     ]:
         try:
             action()
@@ -44,9 +45,14 @@ def mettre_a_jour(journal=print):
     try:
         annee_courante = dt.date.today().year
         deja = base.annees_deja_importees()
+        with base.connexion() as cx:
+            annees_enseignes = {
+                int(l[0]) for l in cx.execute(
+                    "SELECT DISTINCT substr(date, 1, 4) FROM prix_enseigne")
+            }
         annees_manquantes = [
             a for a in range(config.PREMIERE_ANNEE_DISPONIBLE, annee_courante)
-            if a not in deja
+            if a not in deja or a not in annees_enseignes
         ]
         if annees_manquantes:
             journal(
@@ -64,6 +70,19 @@ def mettre_a_jour(journal=print):
         lignes = historique.agreger_annee(annee_courante, journal=lambda m: None)
         base.enregistrer_prix_national(lignes)
         journal(f"  moyennes nationales : {len(lignes)} lignes recalculées")
+
+        # Même archive, second passage : les moyennes par enseigne. Elles
+        # alimentent le comparatif des réseaux, qui n'aurait aucun sens sans
+        # profondeur historique — la réactivité d'une enseigne se mesure sur
+        # une année, pas sur un relevé.
+        correspondance = enseignes.telecharger()
+        for annee in annees_manquantes + [annee_courante]:
+            par_enseigne = historique.agreger_annee_par_enseigne(
+                annee, correspondance, journal=lambda m: None
+            )
+            base.enregistrer_prix_enseigne(par_enseigne)
+        journal(f"  moyennes par enseigne : {len(par_enseigne)} lignes pour "
+                f"{annee_courante}")
     except Exception as erreur:
         incidents.append("moyennes nationales")
         journal(f"  moyennes nationales : échec ({erreur})")

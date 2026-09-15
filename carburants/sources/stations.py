@@ -50,6 +50,8 @@ def rafraichir(journal=print):
         if not identifiant:
             continue
         geo = e.get("geom") or {}
+        # Le champ « pop » vaut A pour autoroute, R pour route ordinaire.
+        sur_autoroute = 1 if (e.get("pop") or "R").upper() == "A" else 0
         stations.append((
             identifiant,
             (e.get("adresse") or "").strip(),
@@ -60,6 +62,7 @@ def rafraichir(journal=print):
             e.get("departement"),
             e.get("code_departement"),
             e.get("region"),
+            sur_autoroute,
             aujourdhui,
         ))
         for carburant, champ in CHAMPS_PRIX.items():
@@ -79,14 +82,15 @@ def rafraichir(journal=print):
         cx.executemany(
             """INSERT INTO station (id, adresse, ville, code_postal, latitude,
                                     longitude, departement, code_departement,
-                                    region, maj)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    region, sur_autoroute, maj)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                    adresse=excluded.adresse, ville=excluded.ville,
                    code_postal=excluded.code_postal, latitude=excluded.latitude,
                    longitude=excluded.longitude, departement=excluded.departement,
                    code_departement=excluded.code_departement,
-                   region=excluded.region, maj=excluded.maj""",
+                   region=excluded.region, sur_autoroute=excluded.sur_autoroute,
+                   maj=excluded.maj""",
             stations,
         )
         cx.executemany(
@@ -152,7 +156,7 @@ def stations_autour(latitude, longitude, carburant, rayon_km=15, limite=40):
             return []
         lignes = cx.execute(
             """SELECT s.id, s.adresse, s.ville, s.code_postal, s.latitude,
-                      s.longitude, p.prix, p.date,
+                      s.longitude, s.enseigne, s.sur_autoroute, p.prix, p.date,
                       EXISTS(SELECT 1 FROM favori f WHERE f.station_id = s.id) AS favori
                FROM station s
                JOIN prix_station p ON p.station_id = s.id

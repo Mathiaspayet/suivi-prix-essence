@@ -33,6 +33,19 @@ CREATE TABLE IF NOT EXISTS reglage (
     modifie_le TEXT NOT NULL
 );
 
+-- Prix moyen quotidien par enseigne, hors autoroute. Contrairement au
+-- découpage régional, abandonné parce que les régions ne sont que des copies
+-- de la moyenne nationale, les enseignes mènent de vraies politiques de prix
+-- distinctes : trente centimes séparent la moins chère de la plus chère.
+CREATE TABLE IF NOT EXISTS prix_enseigne (
+    date        TEXT    NOT NULL,
+    enseigne    TEXT    NOT NULL,
+    carburant   TEXT    NOT NULL,
+    prix_moyen  REAL    NOT NULL,
+    nb_stations INTEGER NOT NULL,
+    PRIMARY KEY (date, enseigne, carburant)
+);
+
 -- Indicateurs de marché : baril de Brent, taux de change euro/dollar.
 CREATE TABLE IF NOT EXISTS marche (
     date       TEXT NOT NULL,
@@ -52,6 +65,12 @@ CREATE TABLE IF NOT EXISTS station (
     departement      TEXT,
     code_departement TEXT,
     region           TEXT,
+    -- Enseigne commerciale, absente du fichier officiel et reconstituée à
+    -- partir d'un référentiel communautaire (voir sources/enseignes.py).
+    enseigne         TEXT,
+    -- Les stations d'autoroute se vendent nettement plus cher : les mélanger
+    -- aux autres fausserait toute comparaison entre réseaux.
+    sur_autoroute    INTEGER NOT NULL DEFAULT 0,
     maj              TEXT
 );
 
@@ -149,6 +168,14 @@ def initialiser():
         if "seuil" not in colonnes:
             cx.execute("ALTER TABLE favori ADD COLUMN seuil REAL")
 
+        colonnes = {l["name"] for l in cx.execute("PRAGMA table_info(station)")}
+        if "enseigne" not in colonnes:
+            cx.execute("ALTER TABLE station ADD COLUMN enseigne TEXT")
+        if "sur_autoroute" not in colonnes:
+            cx.execute(
+                "ALTER TABLE station ADD COLUMN sur_autoroute INTEGER NOT NULL DEFAULT 0"
+            )
+
         colonnes = {l["name"] for l in cx.execute("PRAGMA table_info(prevision)")}
         for nom, type_sql in (
             ("probabilite_hausse", "REAL NOT NULL DEFAULT 0"),
@@ -161,12 +188,18 @@ def initialiser():
             if nom not in colonnes:
                 cx.execute(f"ALTER TABLE prevision ADD COLUMN {nom} {type_sql}")
 
-        # Créé après la migration : il porte sur une colonne que les bases
-        # antérieures n'avaient pas encore.
-        cx.execute(
-            """CREATE INDEX IF NOT EXISTS idx_prevision_echeance
-               ON prevision (date_cible, prix_reel)"""
-        )
+        # Index portant sur des colonnes ajoutées par migration. Ils ne
+        # peuvent pas figurer dans SCHEMA, qui s'exécute avant les ALTER TABLE
+        # ci-dessus : sur une base ancienne, la colonne n'existerait pas encore
+        # et la création échouerait. Toute colonne migrée dont on veut un index
+        # doit passer par ici.
+        for index in (
+            "CREATE INDEX IF NOT EXISTS idx_prevision_echeance"
+            " ON prevision (date_cible, prix_reel)",
+            "CREATE INDEX IF NOT EXISTS idx_station_enseigne"
+            " ON station (enseigne)",
+        ):
+            cx.execute(index)
 
 
 def enregistrer_prix_national(lignes):
@@ -201,6 +234,20 @@ def enregistrer_marche(lignes):
             lignes,
         )
         return cx.total_changes
+
+
+def enregistrer_prix_enseigne(lignes):
+    """Insère ou met à jour des moyennes par enseigne."""
+    with connexion() as cx:
+        cx.executemany(
+            """INSERT INTO prix_enseigne
+                   (date, enseigne, carburant, prix_moyen, nb_stations)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(date, enseigne, carburant) DO UPDATE SET
+                   prix_moyen  = excluded.prix_moyen,
+                   nb_stations = excluded.nb_stations""",
+            lignes,
+        )
 
 
 def annees_deja_importees():

@@ -6,7 +6,8 @@ précise : **faut-il faire le plein maintenant, ou attendre ?**
 Elle fait trois choses :
 
 - **comparer** les stations autour d'une commune, sur une carte ou en liste,
-  de la moins chère à la plus chère ;
+  de la moins chère à la plus chère, avec leur enseigne ;
+- **classer les enseignes** par prix et par marge ;
 - **suivre** l'évolution du prix et la comparer au cours du pétrole brut ;
 - **prévoir** le sens de la prochaine variation, et prévenir par courriel quand il change.
 
@@ -118,6 +119,7 @@ supposées.
 | Indice base 100 pour le graphique | amplitudes trop inégales, les courbes ne se superposent pas |
 | **Entraîner sur les 13 régions** | **neutre à 7 jours, −7 points à 14 jours** |
 | Dispersion entre régions comme signal | neutre (±0,3 point) |
+| **Une enseigne qui baisse en premier** | **artefact : avance réelle de 0 jour** |
 
 La piste régionale méritait d'être tentée : treize séries de 2 800 jours, c'est
 soixante-treize fois plus de lignes d'entraînement. Elle échoue pour une raison
@@ -130,6 +132,56 @@ Quant aux niveaux de prix, ils diffèrent bien d'une région à l'autre, mais de
 5 centimes entre les extrêmes — là où les stations d'un même bassin de vie
 s'étalent couramment sur 25 centimes. Le comparateur de stations répond déjà à
 cette question, et bien mieux.
+
+---
+
+## Ce que valent les enseignes
+
+Le fichier officiel des prix ne publie pas l'enseigne : quarante-sept champs,
+aucun ne la porte. Elle est reconstituée à partir d'un référentiel
+communautaire publié sur data.gouv.fr, enrichi par OpenStreetMap, qui couvre
+98 % des stations en service.
+
+Les stations d'autoroute sont systématiquement écartées de ces comparaisons.
+Elles se vendent nettement plus cher, et les réseaux n'en comportent pas la
+même proportion : Shell en compte sept sur dix, les supermarchés aucune. Les
+inclure imputerait à la politique commerciale d'une enseigne ce qui ne tient
+qu'à l'emplacement de ses stations — l'écart apparent entre la moins chère et
+la plus chère tombe de 41 à 30 centimes une fois l'autoroute retirée.
+
+### Des marges très inégales
+
+Trente centimes par litre séparent le réseau le moins cher du plus cher, soit
+quinze euros sur un plein de cinquante litres.
+
+Cet écart se lit directement comme un écart de marge, et c'est ce qui rend la
+comparaison solide : les taxes sont identiques pour toutes les enseignes sur un
+même carburant, et le carburant de gros s'achète à peu près au même prix. Tout
+ce qui diffère est donc la marge — sans qu'il soit besoin de connaître le
+montant des taxes, qui s'annule dans la soustraction. Sur trente centimes
+d'écart à la pompe, vingt-cinq reviennent au distributeur ; le reste part en
+TVA, qui frappe aussi la marge.
+
+### Aucune enseigne ne baisse en premier
+
+Question naturelle : un réseau annonce-t-il les baisses avant les autres ? Une
+première mesure semblait le confirmer — E.Leclerc paraissait devancer le marché
+de onze jours sur trente épisodes de baisse depuis 2019.
+
+**C'était un artefact.** La méthode cherchait le premier jour où une enseigne
+fléchissait de plus d'un centime : une enseigne qui ajuste souvent franchit
+naturellement ce seuil avant une enseigne inerte, sans rien anticiper du tout.
+Or E.Leclerc est justement la plus réactive du panel — 0,61 centime de
+variation quotidienne contre 0,30 pour la plus lente, et 22 % de jours en
+baisse contre 10 %.
+
+Reprise avec une mesure insensible au bruit — la date du point bas de chaque
+épisode, qui ne dépend d'aucun seuil — l'avance médiane de **toutes** les
+enseignes tombe à zéro jour. Elles bougent ensemble.
+
+La réactivité reste affichée dans le tableau, mais pour ce qu'elle est : une
+mesure de la fréquence des ajustements, à la hausse comme à la baisse, et non
+une capacité d'anticipation.
 
 ---
 
@@ -248,6 +300,7 @@ uvicorn carburants.web.app:application --host 0.0.0.0 --port 8100
 |--------|--------|-----------|
 | Prix de ~9 800 stations | [data.economie.gouv.fr](https://data.economie.gouv.fr/explore/dataset/prix-des-carburants-en-france-flux-instantane-v2/) | continue |
 | Historique depuis 2019 | [donnees.roulez-eco.fr](https://donnees.roulez-eco.fr/) | quotidienne |
+| Enseignes des stations | [Référentiel enrichi par OpenStreetMap](https://www.data.gouv.fr/datasets/referentiel-des-noms-et-enseignes-de-stations-service-enrichi-par-openstreetmap) (ODbL) | quotidienne |
 | Baril de Brent | [FRED](https://fred.stlouisfed.org/series/DCOILBRENTEU) (Réserve fédérale de Saint-Louis) | jours ouvrés |
 | Taux euro/dollar | [FRED](https://fred.stlouisfed.org/series/DEXUSEU) | jours ouvrés |
 

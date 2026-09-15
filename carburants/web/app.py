@@ -19,7 +19,7 @@ from starlette.requests import Request
 
 from carburants import base, config, reglages
 from carburants.modele import entrainement
-from carburants.sources import stations
+from carburants.sources import enseignes, stations
 
 DOSSIER_WEB = config.RACINE / "carburants" / "web"
 
@@ -224,7 +224,8 @@ def api_favoris(carburant: str = Query("Gazole")):
     """Stations suivies, avec leur prix du jour et leur évolution récente."""
     with base.connexion() as cx:
         favoris = cx.execute(
-            """SELECT f.station_id, f.surnom, s.adresse, s.ville, s.code_postal
+            """SELECT f.station_id, f.surnom, s.adresse, s.ville, s.code_postal,
+                      s.enseigne
                FROM favori f JOIN station s ON s.id = f.station_id
                ORDER BY f.ajoute_le""",
         ).fetchall()
@@ -342,6 +343,31 @@ def api_essai_messagerie(x_mot_de_passe: str = Header(None)):
 
     reussi, message = alertes.envoyer_essai()
     return {"ok": reussi, "message": message}
+
+
+@application.get("/api/enseignes")
+def api_enseignes(carburant: str = Query("Gazole")):
+    """Comparatif des enseignes : prix, marge et réactivité."""
+    if carburant not in config.CARBURANTS:
+        raise HTTPException(404, f"Carburant inconnu : {carburant}")
+    tableau = enseignes.comparatif(carburant)
+    return {
+        "carburant": carburant,
+        "enseignes": tableau,
+        "ecart_total_cts": round(
+            tableau[-1]["prix_median"] * 100 - tableau[0]["prix_median"] * 100, 1
+        ) if len(tableau) > 1 else 0,
+    }
+
+
+@application.get("/api/enseignes/historique")
+def api_enseignes_historique(
+    carburant: str = Query("Gazole"), jours: int = Query(365)
+):
+    """Séries quotidiennes par enseigne."""
+    if carburant not in config.CARBURANTS:
+        raise HTTPException(404, f"Carburant inconnu : {carburant}")
+    return {"carburant": carburant, "series": enseignes.historique(carburant, jours)}
 
 
 @application.get("/api/palmares")
