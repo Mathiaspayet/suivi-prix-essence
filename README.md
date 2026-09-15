@@ -106,6 +106,72 @@ Le programme mesure les deux méthodes à chaque entraînement et conserve celle
 qui a réellement gagné, carburant par carburant et horizon par horizon. La page
 d'accueil indique toujours laquelle a été employée.
 
+### Ce que dit la recherche, et ce qu'elle a donné ici
+
+La littérature sur la prévision du pétrole converge sur un point décourageant :
+**la marche aléatoire est très difficile à battre** à court horizon. Alquist,
+Kilian et Vigfusson montrent qu'un modèle nourri des stocks mondiaux et de
+l'activité économique y parvient, mais à l'échelle mensuelle et sur des
+horizons allant jusqu'à neuf mois ; les travaux récents d'Ellwanger et Snudden
+vont plus loin et doutent qu'un modèle quelconque batte durablement le prix de
+fin de mois. Les contrats à terme n'aident qu'au-delà d'un an.
+
+Cela oriente la recherche ailleurs : non pas prévoir le baril, mais **mieux
+modéliser sa répercussion à la pompe**. C'est le domaine des modèles à
+correction d'erreur asymétrique issus de Borenstein, Cameron et Gilbert, avec
+leur raffinement le plus intéressant — une *bande d'inaction*, en deçà de
+laquelle les stations ne changent pas leurs étiquettes, et dont le seuil
+diffère selon le sens du mouvement.
+
+Trois familles de variables ont été construites et mesurées sur cette base :
+correction d'erreur asymétrique avec bande d'inaction, indicateurs d'analyse
+technique (force relative, MACD, bandes de Bollinger, croisements de moyennes),
+et effets de calendrier.
+
+**Aucune n'apporte de gain durable.** Une première mesure sur six périodes
+annonçait +1,25 point ; reprise sur vingt-cinq fenêtres glissantes, elle tombe
+à +0,2 point, et la part des fenêtres où le jeu enrichi l'emporte oscille
+autour de cinquante pour cent — un tirage à pile ou face. L'explication est
+probablement que la forêt aléatoire voyait déjà cette information : la
+correction d'erreur et la force relative ne sont que des transformations non
+linéaires du même historique de prix, qu'un ensemble d'arbres approche seul.
+
+### En revanche, les pourcentages affichés mentaient
+
+Cette recherche a révélé un défaut plus grave que l'absence de gain, et qui
+n'avait jamais été vérifié : **la confiance annoncée ne correspondait pas à la
+réussite constatée.**
+
+Mesuré sur les prévisions déjà jugées, à trente jours :
+
+| Confiance annoncée | Réussite réelle | Écart |
+|--------------------|-----------------|-------|
+| 90-100 %           | 60,0 %          | −34,2 |
+| 80-89 %            | 63,3 %          | −20,8 |
+| 70-79 %            | 56,0 %          | −18,3 |
+
+Annoncer « 90 % de probabilité » pour réussir six fois sur dix n'est pas une
+imprécision, c'est une promesse non tenue. La décomposition par méthode
+désignait le coupable principal : la régression logistique sur l'E10 à trente
+jours, qui annonçait 75,5 % pour 48,8 % de réussite.
+
+Un correcteur de confiance est désormais ajusté pour chaque carburant et chaque
+horizon, sur les probabilités rendues pendant la validation — donc sur des
+jours jamais appris. Trois candidats concourent, dont l'absence de correction,
+et le meilleur est retenu sur une moitié d'observations que l'ajustement n'a
+pas vue.
+
+| Horizon | Écart avant | Écart après |
+|---------|-------------|-------------|
+| 7 jours | 6,8 points  | **3,6** |
+| 14 jours| 4,6 points  | 4,5 |
+| 30 jours| 16,8 points | **4,1** |
+
+La justesse y gagne accessoirement deux points — le correcteur fait basculer du
+bon côté des prévisions qui hésitaient. Le palmarès affiche désormais la
+confiance annoncée en regard de la réussite constatée : les deux colonnes
+doivent rester proches, et c'est vérifiable d'un coup d'œil.
+
 ### Pistes explorées et écartées
 
 Consignées ici pour éviter de refaire le trajet. Toutes ont été mesurées, pas
@@ -120,6 +186,10 @@ supposées.
 | Indice base 100 pour le graphique | amplitudes trop inégales, les courbes ne se superposent pas |
 | **Entraîner sur les 13 régions** | **neutre à 7 jours, −7 points à 14 jours** |
 | Dispersion entre régions comme signal | neutre (±0,3 point) |
+| Correction d'erreur asymétrique, bande d'inaction | +0,2 point sur 25 fenêtres |
+| Analyse technique (RSI, MACD, Bollinger) | +0,2 point, gagne une fenêtre sur deux |
+| Effets de calendrier | −0,1 point |
+| Tensions de raffinage | −1,1 point |
 | **Une enseigne qui baisse en premier** | **artefact : avance réelle de 0 jour** |
 
 La piste régionale méritait d'être tentée : treize séries de 2 800 jours, c'est

@@ -666,8 +666,9 @@ async function chargerPrevisions() {
         p.conseil === "peu_fiable" ? "Le modèle se trompe trop souvent ici"
         : p.conseil === "indecis" ? "Pas d'écart net attendu"
         : centimes(p.variation_probable_cts) + " / L &nbsp;·&nbsp; vers " + euros(p.prix_prevu)}</div>
+      ${p.conseil === "peu_fiable" ? "" : `
       <div class="jauge"><span style="width:${p.probabilite_hausse}%;background:${couleurTuile}"></span></div>
-      <div class="fiabilite" style="margin-top:6px">${p.probabilite_hausse.toFixed(0)} % de probabilité de hausse</div>`;
+      <div class="fiabilite" style="margin-top:6px">${p.probabilite_hausse.toFixed(0)} % de probabilité de hausse</div>`}`;
     zone.appendChild(tuile);
   });
 
@@ -1236,9 +1237,13 @@ async function chargerPalmares() {
   resume.textContent = `Sur ${d.nb_jugees.toLocaleString("fr-FR")} prévisions arrivées à `
     + `échéance depuis le ${dateLongue(d.depuis)}, le sens annoncé s'est vérifié `
     + `${d.taux_reussite.toFixed(1).replace(".", ",")} % du temps. `
-    + `Une prévision n'est comptée que si le prix a bougé d'au moins un demi-centime.`;
+    + `Une prévision n'est comptée que si le prix a bougé d'au moins un demi-centime. `
+    + `La colonne « confiance annoncée » doit rester proche de « vues juste » : `
+    + `c'est la preuve que les pourcentages affichés ne promettent pas plus `
+    + `qu'ils ne tiennent.`;
 
   corps.innerHTML = `<tr><th>Échéance</th><th class="nombre">Prévisions jugées</th>
+                     <th class="nombre">Confiance annoncée</th>
                      <th class="nombre">Vues juste</th><th></th></tr>`;
   d.detail.forEach((l) => {
     const ligne = document.createElement("tr");
@@ -1247,6 +1252,8 @@ async function chargerPalmares() {
     ligne.innerHTML = `
       <td>${l.horizon} jours</td>
       <td class="nombre">${l.nb}</td>
+      <td class="nombre" style="color:var(--encre-3)">${
+        l.confiance_annoncee == null ? "—" : l.confiance_annoncee.toFixed(1).replace(".", ",") + " %"}</td>
       <td class="nombre" style="color:${encre(couleur)}">${l.taux.toFixed(1).replace(".", ",")} %</td>
       <td>${l.taux < 60 ? '<span class="etiquette">non communiqué</span>' : ""}</td>`;
     corps.appendChild(ligne);

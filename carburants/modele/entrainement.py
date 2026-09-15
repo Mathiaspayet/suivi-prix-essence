@@ -42,6 +42,7 @@ import pickle
 
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
@@ -112,6 +113,10 @@ def valider(carburant, horizon, nb_plis=6):
     justesse = {nom: [] for nom in noms}
     justesse.update({"momentum": [], "toujours_hausse": []})
     periodes = []
+    # Probabilités rendues sur des jours jamais appris, et ce qui s'est
+    # réellement produit. Elles serviront à corriger la confiance annoncée.
+    hors_echantillon = {nom: {"proba": [], "verite": []} for nom in noms}
+    hors_echantillon["momentum"] = {"proba": [], "verite": []}
 
     for pli in range(nb_plis):
         fin_entrainement = taille_pli * (pli + 1)
@@ -133,12 +138,19 @@ def valider(carburant, horizon, nb_plis=6):
 
         for nom, modele in fabriquer_candidats().items():
             modele.fit(X_ent, (y_ent > 0).astype(int))
-            prediction = modele.predict(X_test)[bouge.values]
-            justesse[nom].append(float((prediction == verite).mean()))
+            probabilites = modele.predict_proba(X_test)[bouge.values, 1]
+            justesse[nom].append(float(((probabilites >= 0.5).astype(int) == verite).mean()))
+            hors_echantillon[nom]["proba"].extend(probabilites.tolist())
+            hors_echantillon[nom]["verite"].extend(verite.tolist())
 
-        justesse["momentum"].append(
-            float(((X_test["var_pompe_7j"][bouge] > 0).astype(int) == verite).mean())
+        monte = (X_test["var_pompe_7j"][bouge] > 0).astype(int)
+        justesse["momentum"].append(float((monte == verite).mean()))
+        # La règle de tendance ne rend qu'un verdict binaire ; on l'exprime en
+        # probabilité pour que le correcteur puisse en mesurer la valeur réelle.
+        hors_echantillon["momentum"]["proba"].extend(
+            np.where(monte.values == 1, 0.75, 0.25).tolist()
         )
+        hors_echantillon["momentum"]["verite"].extend(verite.tolist())
         justesse["toujours_hausse"].append(float((verite == 1).mean()))
         periodes.append((X_test.index[0].date(), X_test.index[-1].date()))
 
@@ -162,7 +174,97 @@ def valider(carburant, horizon, nb_plis=6):
     # Une entrée par candidat : « justesse_foret », « justesse_logistique »…
     for nom in noms:
         resume[f"justesse_{nom}"] = float(np.mean(justesse[nom])) * 100
+    resume["_hors_echantillon"] = hors_echantillon
     return resume
+
+
+def _ecart_calibration(probabilites, verites):
+    """Écart moyen entre la confiance annoncée et la réussite constatée.
+
+    On regroupe les prévisions par tranche de confiance — 50-60 %, 60-70 %… —
+    et l'on compare, dans chaque tranche, ce qui était promis à ce qui s'est
+    produit. Un écart de vingt points signifie qu'annoncer « 80 % de chances »
+    revient en réalité à en avoir soixante : le chiffre ment.
+    """
+    probabilites = np.asarray(probabilites)
+    verites = np.asarray(verites)
+    if len(probabilites) < 100:
+        return float("nan")
+    confiance = np.where(probabilites >= 0.5, probabilites, 1 - probabilites)
+    juste = (probabilites >= 0.5).astype(int) == verites
+    ecarts, effectifs = [], []
+    for bas, haut in ((0.5, 0.6), (0.6, 0.7), (0.7, 0.8), (0.8, 0.9), (0.9, 1.01)):
+        tranche = (confiance >= bas) & (confiance < haut)
+        if tranche.sum() < 20:
+            continue
+        ecarts.append(abs(confiance[tranche].mean() - juste[tranche].mean()) * 100)
+        effectifs.append(tranche.sum())
+    if not ecarts:
+        return float("nan")
+    return float(np.average(ecarts, weights=effectifs))
+
+
+def _ajuster_calibrateur(probabilites, verites):
+    """Retient le correcteur de confiance qui ment le moins, ou aucun.
+
+    Trois candidats concourent, départagés sur une moitié des observations que
+    l'ajustement n'a pas vue — sans quoi on choisirait celui qui recopie le
+    mieux ses propres données.
+
+    - « aucun » : les probabilités brutes. Parfois les meilleures, et il faut
+      pouvoir le constater plutôt que de corriger par principe.
+    - « logistique » : une déformation douce, à deux paramètres, robuste quand
+      les observations sont peu nombreuses.
+    - « isotonique » : une déformation libre, seulement tenue de rester
+      croissante. Plus fidèle, mais capable d'épouser le bruit.
+    """
+    probabilites = np.asarray(probabilites, dtype=float)
+    verites = np.asarray(verites, dtype=int)
+    if len(probabilites) < 300 or len(set(verites)) < 2:
+        return None, float("nan")
+
+    milieu = len(probabilites) // 2
+    app_p, app_v = probabilites[:milieu], verites[:milieu]
+    jug_p, jug_v = probabilites[milieu:], verites[milieu:]
+    if len(set(app_v)) < 2 or len(set(jug_v)) < 2:
+        return None, float("nan")
+
+    candidats = {"aucun": None}
+    try:
+        candidats["logistique"] = LogisticRegression().fit(app_p.reshape(-1, 1), app_v)
+    except Exception:
+        pass
+    try:
+        candidats["isotonique"] = IsotonicRegression(out_of_bounds="clip").fit(app_p, app_v)
+    except Exception:
+        pass
+
+    resultats = {}
+    for nom, correcteur in candidats.items():
+        corrigees = _appliquer_calibrateur(correcteur, jug_p)
+        resultats[nom] = _ecart_calibration(corrigees, jug_v)
+
+    valides = {n: e for n, e in resultats.items() if e == e}
+    if not valides:
+        return None, float("nan")
+    meilleur = min(valides, key=valides.get)
+    return (
+        None if meilleur == "aucun" else candidats[meilleur],
+        valides[meilleur],
+    )
+
+
+def _appliquer_calibrateur(correcteur, probabilites):
+    """Applique un correcteur, ou rend les probabilités inchangées."""
+    probabilites = np.asarray(probabilites, dtype=float)
+    if correcteur is None:
+        return probabilites
+    if isinstance(correcteur, IsotonicRegression):
+        corrigees = correcteur.predict(probabilites)
+    else:
+        corrigees = correcteur.predict_proba(probabilites.reshape(-1, 1))[:, 1]
+    # On s'interdit la certitude : aucune prévision de prix ne la mérite.
+    return np.clip(corrigees, 0.02, 0.98)
 
 
 def choisir_methode(mesures):
@@ -220,10 +322,17 @@ def entrainer(carburant, horizon, revalider=None, journal=print):
         mesures = valider(carburant, horizon)
         methode = choisir_methode(mesures)
         valide_le = dt.date.today().isoformat()
+        observations = mesures.pop("_hors_echantillon", {}).get(methode, {})
+        calibrateur, ecart = _ajuster_calibrateur(
+            observations.get("proba", []), observations.get("verite", [])
+        )
+        mesures["ecart_calibration"] = None if ecart != ecart else round(ecart, 1)
     else:
         mesures = dict(precedent["mesures"])
         methode = precedent["methode"]
         valide_le = precedent["valide_le"]
+        calibrateur = precedent.get("calibrateur")
+    mesures.pop("_hors_echantillon", None)
     mesures["methode"] = methode
     mesures["justesse_retenue"] = (
         mesures["justesse_momentum"] if methode == "momentum"
@@ -253,6 +362,9 @@ def entrainer(carburant, horizon, revalider=None, journal=print):
                 "colonnes": caracteristiques.COLONNES_CARACTERISTIQUES,
                 "mesures": mesures,
                 "methode": methode,
+                # Correcteur de confiance : sans lui, la page annonçait 90 %
+                # là où elle réussissait 60 % du temps.
+                "calibrateur": calibrateur,
                 "entraine_le": dt.date.today().isoformat(),
                 "valide_le": valide_le,
             },
@@ -413,6 +525,13 @@ def prevoir(carburant, horizon):
         monte = float(dernier_jour["var_pompe_7j"].iloc[0]) > 0
         probabilite_hausse = justesse if monte else 1 - justesse
 
+    # Correction de la confiance annoncée. Mesurée sur les prévisions déjà
+    # jugées, la confiance brute se révélait trop haute aux longues échéances
+    # — jusqu'à vingt-sept points d'écart — et trop basse à sept jours.
+    probabilite_hausse = float(
+        _appliquer_calibrateur(paquet.get("calibrateur"), [probabilite_hausse])[0]
+    )
+
     prix_actuel = float(tableau["prix"].loc[dates[-1]])
     amplitude = mesures["amplitude_mediane_cts"] / 100
     sens = 1 if probabilite_hausse >= 0.5 else -1
@@ -457,6 +576,7 @@ def prevoir(carburant, horizon):
         "justesse_pct": round(justesse, 1) if justesse is not None else None,
         "justesse_source": source,
         "justesse_validation_pct": round(mesures["justesse_retenue"], 1),
+        "ecart_calibration": mesures.get("ecart_calibration"),
         "nb_previsions_jugees": bilan["nb_jugees"],
         "entraine_le": paquet["entraine_le"],
     }

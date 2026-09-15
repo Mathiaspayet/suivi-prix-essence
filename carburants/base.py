@@ -340,7 +340,11 @@ def palmares(carburant=None, horizon=None):
         ).fetchone()
         detail = cx.execute(
             f"""SELECT carburant, horizon_jours, COUNT(*) AS n,
-                       SUM(sens_correct) AS justes
+                       SUM(sens_correct) AS justes,
+                       -- Confiance moyenne annoncée, pour la confronter à la
+                       -- réussite : c'est ce qui dit si le pourcentage ment.
+                       AVG(CASE WHEN sens = 'hausse' THEN probabilite_hausse
+                                ELSE 100 - probabilite_hausse END) AS confiance
                 FROM prevision WHERE {ou}
                 GROUP BY carburant, horizon_jours
                 ORDER BY carburant, horizon_jours""",
@@ -365,6 +369,7 @@ def palmares(carburant=None, horizon=None):
                 "horizon": d["horizon_jours"],
                 "nb": d["n"],
                 "taux": taux(d["justes"] or 0, d["n"]),
+                "confiance_annoncee": round(d["confiance"], 1) if d["confiance"] else None,
             }
             for d in detail
         ],

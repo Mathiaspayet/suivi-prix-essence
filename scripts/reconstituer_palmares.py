@@ -75,6 +75,13 @@ def reconstituer(carburant, horizon, nb_mois, journal=print):
             modele.fit(X[avant], (y[avant] > 0).astype(int))
             probabilites = modele.predict_proba(X[apres])[:, 1]
 
+        # Le correcteur de confiance s'applique ici comme il s'appliquera en
+        # service : sans cela le palmarès mesurerait une confiance que
+        # l'utilisateur ne verra jamais.
+        probabilites = entrainement._appliquer_calibrateur(
+            paquet.get("calibrateur"), probabilites
+        )
+
         prix = tableau["prix"]
         for date, probabilite in zip(dates[apres], probabilites):
             jour = date.date()
