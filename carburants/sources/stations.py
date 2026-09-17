@@ -136,12 +136,20 @@ def chercher_commune(terme):
     return [dict(l) for l in lignes]
 
 
-def stations_autour(latitude, longitude, carburant, rayon_km=15, limite=40):
-    """Stations proposant ce carburant dans un rayon donné, les moins chères d'abord.
+def stations_autour(latitude, longitude, carburant, rayon_km=15, limite=40,
+                    tri="prix"):
+    """Stations proposant ce carburant dans un rayon donné.
 
-    Le tri par prix est le cœur de la fonction : l'écart entre la station la
-    moins chère et la plus chère d'une même agglomération dépasse souvent
-    quinze centimes par litre, soit plusieurs euros par plein.
+    Le tri par prix est la raison d'être de la fonction : l'écart entre la
+    station la moins chère et la plus chère d'une même agglomération dépasse
+    souvent quinze centimes par litre, soit plusieurs euros par plein. Mais
+    trois centimes ne valent pas vingt kilomètres de détour, d'où le tri par
+    distance — qui répond à l'autre question légitime : « la moins chère sur
+    mon chemin ».
+
+    Le tri intervient avant la troncature à « limite » stations, faute de quoi
+    trier par distance ne montrerait que les plus proches parmi les moins
+    chères, ce qui n'a pas de sens.
     """
     # Pré-filtre rectangulaire avant le calcul exact : à cette latitude, un
     # degré vaut environ 111 km. Cela évite de calculer 9 800 distances.
@@ -177,7 +185,8 @@ def stations_autour(latitude, longitude, carburant, rayon_km=15, limite=40):
         ligne["distance_km"] = round(distance, 1)
         resultats.append(ligne)
 
-    resultats.sort(key=lambda r: r["prix"])
+    resultats.sort(key=lambda r: (r["distance_km"], r["prix"]) if tri == "distance"
+                   else (r["prix"], r["distance_km"]))
     resultats = resultats[:limite]
 
     # Tous les carburants de chaque station retenue, pour la fiche qui s'ouvre
@@ -197,7 +206,73 @@ def stations_autour(latitude, longitude, carburant, rayon_km=15, limite=40):
         for r in resultats:
             r["tous_carburants"] = par_station.get(r["id"], {})
 
+        bougees = variations_recentes(identifiants, carburant, derniere_date)
+        for r in resultats:
+            r.update(bougees.get(r["id"], {"var_24h_cts": None, "var_7j_cts": None}))
+
     return resultats
+
+
+def variations_recentes(identifiants, carburant, derniere_date=None):
+    """Variation du prix de chaque station sur 24 heures et sur 7 jours.
+
+    Le relevé d'une station peut manquer à une date donnée sans que rien ne
+    soit anormal : le fichier officiel n'enregistre qu'un *changement* de prix,
+    et l'historique reconstitué en hérite. On retient donc le dernier relevé
+    connu à la date visée ou avant — ce qui est aussi la lecture juste, un prix
+    inchangé depuis trois jours valant toujours celui d'il y a trois jours.
+
+    La valeur reste à None quand aucun relevé antérieur n'existe, cas courant
+    pour une station que l'historique local ne couvre pas encore : mieux vaut
+    un tiret qu'un zéro qui ferait croire à un prix stable.
+    """
+    identifiants = list(identifiants)
+    if not identifiants:
+        return {}
+    with base.connexion() as cx:
+        if derniere_date is None:
+            derniere_date = cx.execute(
+                "SELECT MAX(date) FROM prix_station"
+            ).fetchone()[0]
+    if not derniere_date:
+        return {}
+
+    debut = (dt.date.fromisoformat(derniere_date) - dt.timedelta(days=30)).isoformat()
+    trous = ",".join("?" * len(identifiants))
+    with base.connexion() as cx:
+        lignes = cx.execute(
+            f"""SELECT station_id, date, prix FROM prix_station
+                WHERE carburant = ? AND date BETWEEN ? AND ?
+                  AND station_id IN ({trous})
+                ORDER BY station_id, date""",
+            [carburant, debut, derniere_date] + identifiants,
+        ).fetchall()
+
+    series = {}
+    for l in lignes:
+        series.setdefault(l["station_id"], []).append((l["date"], l["prix"]))
+
+    veille = (dt.date.fromisoformat(derniere_date) - dt.timedelta(days=1)).isoformat()
+    semaine = (dt.date.fromisoformat(derniere_date) - dt.timedelta(days=7)).isoformat()
+
+    def valeur_au(serie, cible):
+        retenue = None
+        for date, prix in serie:
+            if date <= cible:
+                retenue = prix
+            else:
+                break
+        return retenue
+
+    resultat = {}
+    for identifiant, serie in series.items():
+        actuel = serie[-1][1]
+        avant_1j, avant_7j = valeur_au(serie, veille), valeur_au(serie, semaine)
+        resultat[identifiant] = {
+            "var_24h_cts": None if avant_1j is None else round((actuel - avant_1j) * 100, 1),
+            "var_7j_cts": None if avant_7j is None else round((actuel - avant_7j) * 100, 1),
+        }
+    return resultat
 
 
 def historique_station(station_id, carburant, jours=180):

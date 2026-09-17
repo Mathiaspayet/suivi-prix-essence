@@ -6,8 +6,9 @@ précise : **faut-il faire le plein maintenant, ou attendre ?**
 Elle fait cinq choses :
 
 - **comparer** les stations autour d'une commune, sur une carte ou en liste,
-  de la moins chère à la plus chère, avec leur enseigne ;
-- **classer les enseignes** par prix et par marge ;
+  triées par prix ou par distance, avec leur enseigne ;
+- **montrer ce qui vient de bouger** — baril, moyenne nationale et stations
+  voisines, sur 24 heures et sur 7 jours, côte à côte ;
 - **suivre** l'évolution du prix et la comparer au cours du pétrole brut ;
 - **prévoir** le sens de la prochaine variation, et prévenir par courriel quand il change ;
 - **comparer des stations précises** en cochant leur courbe dans la liste.
@@ -313,14 +314,24 @@ cette question, et bien mieux.
 
 ---
 
-## Ce que valent les enseignes
+## Les enseignes : ce qu'on en a appris, et pourquoi le tableau a disparu
 
 Le fichier officiel des prix ne publie pas l'enseigne : quarante-sept champs,
 aucun ne la porte. Elle est reconstituée à partir d'un référentiel
 communautaire publié sur data.gouv.fr, enrichi par OpenStreetMap, qui couvre
-98 % des stations en service.
+98 % des stations en service. **Cette reconstitution reste en place** : c'est
+elle qui met « Carrefour » ou « E.Leclerc » en face de chaque ligne de la liste
+des stations.
 
-Les stations d'autoroute sont systématiquement écartées de ces comparaisons.
+Ce qui a disparu, c'est le **classement national des enseignes** qui occupait
+une section entière de la page. Il répondait à une question mal posée. Savoir
+qu'un réseau est en moyenne le moins cher de France ne sert à rien si l'on n'en
+a aucun exemplaire à vingt kilomètres — et si l'on en a un, la liste des
+stations voisines le dit déjà, avec son prix réel plutôt qu'une médiane
+nationale. Les mesures ci-dessous, elles, gardent leur intérêt : elles
+expliquent ce qu'on observe dans cette liste.
+
+Les stations d'autoroute étaient systématiquement écartées de ces comparaisons.
 Elles se vendent nettement plus cher, et les réseaux n'en comportent pas la
 même proportion : Shell en compte sept sur dix, les supermarchés aucune. Les
 inclure imputerait à la politique commerciale d'une enseigne ce qui ne tient
@@ -357,9 +368,52 @@ Reprise avec une mesure insensible au bruit — la date du point bas de chaque
 épisode, qui ne dépend d'aucun seuil — l'avance médiane de **toutes** les
 enseignes tombe à zéro jour. Elles bougent ensemble.
 
-La réactivité reste affichée dans le tableau, mais pour ce qu'elle est : une
-mesure de la fréquence des ajustements, à la hausse comme à la baisse, et non
-une capacité d'anticipation.
+C'est la conclusion pratique à retenir : **il n'y a pas d'enseigne à guetter**.
+Il y a des stations plus ou moins chères, et la liste les donne. La réactivité
+d'un réseau ne mesure que la fréquence de ses ajustements, à la hausse comme à
+la baisse, et non une capacité d'anticipation.
+
+---
+
+## Lire la page
+
+### « Ce qui a bougé récemment »
+
+Trois tuiles côte à côte, et c'est leur juxtaposition qui compte : le **baril**,
+la **moyenne française à la pompe**, et les **stations autour de chez soi**,
+chacune sur deux échéances.
+
+| | Ce qu'on y lit |
+|---|---|
+| Pétrole brut | dernière séance et 7 jours, en pourcentage |
+| Le carburant choisi à la pompe | 24 heures et 7 jours, en centimes par litre |
+| Les stations du voisinage | médiane des variations de ces stations |
+
+L'écart entre la première tuile et les deux autres est l'information utile :
+quand le baril prend 12 % en une semaine et la pompe 1,7 %, la hausse n'est pas
+finie. Une phrase sous les tuiles énonce cette lecture, avec les deux nombres
+qui la fondent.
+
+Deux honnêtetés de vocabulaire. Pour le baril on écrit « dernière séance » et
+non « 24 heures » : les marchés ne cotent ni le week-end ni les jours fériés,
+et la donnée publique accuse quelques jours de retard — affichés sous la tuile.
+Pour une station dont l'historique ne remonte pas assez loin, on écrit « — »
+plutôt que zéro : un prix inconnu n'est pas un prix stable.
+
+### La liste des stations
+
+Elle se trie **par prix** ou **par distance**, et le tri intervient avant la
+troncature de la liste : trier par distance ne montre pas les plus proches
+parmi les moins chères, mais bien les plus proches. Trois centimes ne valent
+pas vingt kilomètres de détour, et l'outil n'a pas à trancher à la place de
+celui qui conduit.
+
+La station la moins chère reste en gras où qu'elle se trouve dans la liste.
+
+L'adresse ne figure plus dans le tableau — enseigne et commune suffisent à
+reconnaître une station — mais elle reste dans l'infobulle de la carte, qui est
+la vue de détail qu'on ouvre exprès, et c'est bien là qu'on a besoin de savoir
+où aller.
 
 ---
 
@@ -424,16 +478,24 @@ bougé ne ferait que la redémarrer pour rien.
 
 ### Comparer des stations précises
 
-Une case à cocher au bout de chaque ligne de la liste affiche la courbe de la
-station sur le graphique, jusqu'à six à la fois — au-delà, les couleurs ne se
-distinguent plus.
+Une case à cocher **en tête de chaque ligne** de la liste affiche la courbe de
+la station sur le graphique, jusqu'à six à la fois — au-delà, les couleurs ne
+se distinguent plus. C'est la colonne qu'on parcourt du doigt pour cocher :
+elle n'a rien à faire au bout d'un tableau qui défile.
 
-L'historique par station n'est conservé que pour le voisinage de la commune
+L'historique complet n'est conservé que pour le voisinage de la commune
 configurée (soixante kilomètres par défaut) et pour les stations suivies. Tout
-garder représenterait neuf millions de lignes et quatre cents mégaoctets pour
-la seule année en cours, au bénéfice d'un usage qui n'existe pas : personne ne
-consulte la courbe d'une station qu'il ne fréquentera jamais. Les stations plus
-lointaines n'ont que les relevés accumulés depuis l'installation.
+garder représenterait onze millions de lignes et quatre cents mégaoctets par
+an, au bénéfice d'un usage qui n'existe pas : personne ne consulte la courbe
+d'une station qu'il ne fréquentera jamais.
+
+Les autres stations gardent **quatre-vingt-dix jours**, de quoi afficher leurs
+variations récentes. Au-delà, la tâche quotidienne élague. Rien n'est perdu
+pour autant : le jour où l'on déménage ou l'on suit une nouvelle station, le
+programme repère qu'elle est dépourvue d'historique et va le rechercher dans
+les archives annuelles. L'élagage est suspendu tant que la commune de référence
+reste introuvable, faute de quoi il effacerait précisément ce qu'il doit
+protéger.
 
 ### En cas d'erreur « unauthorized » au téléchargement
 
@@ -529,6 +591,9 @@ Toutes sont gratuites et ne demandent aucune inscription.
 carburants/
 ├── config.py              tous les réglages, regroupés ici
 ├── base.py                schéma de la base SQLite
+├── variations.py          ce que le baril et la pompe viennent de faire
+├── diagnostic.py          ce qui manque dans la base, et comment le dire
+├── reglages.py            réglages modifiables depuis la page
 ├── alertes.py             courriels
 ├── sources/
 │   ├── stations.py        prix station par station (flux instantané)

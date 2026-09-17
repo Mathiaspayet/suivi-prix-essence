@@ -127,3 +127,11 @@ HORIZONS_JOURS = [7, 14, 30]
 #    vendu que dans ~1 700 stations, contre ~9 800 pour le gazole.
 NB_STATIONS_MINIMUM = 300
 PART_MINIMALE_COUVERTURE = 0.5
+
+# Profondeur d'historique conservée pour les stations qu'on ne consulte pas.
+# Chaque collecte enregistre les 9 800 stations du pays : onze millions de
+# lignes au bout d'un an si l'on garde tout, pour un usage inexistant. Les
+# stations du voisinage et celles qu'on suit échappent à cette limite ; les
+# autres gardent de quoi afficher leurs variations récentes, et le reste
+# demeure reconstituable depuis les archives annuelles.
+JOURS_HISTORIQUE_STATIONS = 90

@@ -33,7 +33,6 @@ def manques():
         sans_enseigne = _compter(
             cx, "SELECT COUNT(*) FROM station WHERE enseigne IS NULL"
         )
-        nb_enseignes = _compter(cx, "SELECT COUNT(*) FROM prix_enseigne")
         derniere = cx.execute("SELECT MAX(date) FROM prix_station").fetchone()[0]
 
     if nb_stations == 0:
@@ -49,8 +48,6 @@ def manques():
     # couvre 98 %. Au-delà du quart, c'est qu'il n'a jamais été téléchargé.
     if nb_stations and sans_enseigne > nb_stations * 0.25:
         trouvailles.append("les enseignes ne sont pas renseignées")
-    if nb_enseignes == 0:
-        trouvailles.append("l'historique par enseigne est absent")
 
     manquants = entrainement.modeles_manquants()
     if manquants:

@@ -16,6 +16,39 @@ from carburants import alertes, base, config
 from carburants.sources import enseignes, historique, marche, stations
 
 
+def _elaguer(a_conserver, journal=print):
+    """Limite la profondeur d'historique des stations qu'on ne consulte pas.
+
+    Chaque collecte enregistre le prix des 9 800 stations du pays, soit une
+    trentaine de milliers de lignes par jour — onze millions au bout d'un an,
+    près de quatre cents mégaoctets sur le disque du NAS. Or cette profondeur
+    ne sert qu'aux stations qu'on regarde vraiment : celles du voisinage et
+    celles qu'on suit.
+
+    Les autres gardent de quoi afficher leurs variations récentes, et rien de
+    plus. Le passé supprimé reste reconstituable depuis les archives annuelles
+    le jour où l'on déménage ou l'on suit une nouvelle station : le programme
+    va le rechercher de lui-même, puisqu'il repère les stations dépourvues
+    d'historique.
+    """
+    limite = dt.date.today() - dt.timedelta(days=config.JOURS_HISTORIQUE_STATIONS)
+    with base.connexion() as cx:
+        if a_conserver:
+            trous = ",".join("?" * len(a_conserver))
+            supprimes = cx.execute(
+                f"""DELETE FROM prix_station
+                    WHERE date < ? AND station_id NOT IN ({trous})""",
+                [limite.isoformat()] + list(a_conserver),
+            ).rowcount
+        else:
+            supprimes = cx.execute(
+                "DELETE FROM prix_station WHERE date < ?", (limite.isoformat(),)
+            ).rowcount
+    if supprimes > 0:
+        journal(f"  élagage : {supprimes} relevés anciens écartés "
+                f"({len(a_conserver)} stations gardées en entier)")
+
+
 def mettre_a_jour(journal=print):
     """Enchaîne les étapes du jour, sans qu'un échec n'interrompe les suivantes.
 
@@ -26,9 +59,9 @@ def mettre_a_jour(journal=print):
     base.initialiser()
     incidents = []
 
-    # Le référentiel des enseignes est téléchargé une fois et réutilisé : il
-    # sert à nommer les stations puis à agréger les prix par enseigne, et son
-    # téléchargement coûte près d'une minute.
+    # Le référentiel des enseignes nomme les stations du fichier officiel, qui
+    # n'indique pas la marque. Son téléchargement coûte près d'une minute, d'où
+    # la mise de côté du résultat.
     referentiel = {}
     try:
         referentiel = enseignes.telecharger()
@@ -54,14 +87,9 @@ def mettre_a_jour(journal=print):
     try:
         annee_courante = dt.date.today().year
         deja = base.annees_deja_importees()
-        with base.connexion() as cx:
-            annees_enseignes = {
-                int(l[0]) for l in cx.execute(
-                    "SELECT DISTINCT substr(date, 1, 4) FROM prix_enseigne")
-            }
         annees_manquantes = [
             a for a in range(config.PREMIERE_ANNEE_DISPONIBLE, annee_courante)
-            if a not in deja or a not in annees_enseignes
+            if a not in deja
         ]
         if annees_manquantes:
             journal(
@@ -80,18 +108,6 @@ def mettre_a_jour(journal=print):
         base.enregistrer_prix_national(lignes)
         journal(f"  moyennes nationales : {len(lignes)} lignes recalculées")
 
-        # Même archive, second passage : les moyennes par enseigne. Elles
-        # alimentent le comparatif des réseaux, qui n'aurait aucun sens sans
-        # profondeur historique — la réactivité d'une enseigne se mesure sur
-        # une année, pas sur un relevé.
-        for annee in annees_manquantes + [annee_courante]:
-            par_enseigne = historique.agreger_annee_par_enseigne(
-                annee, referentiel, journal=lambda m: None
-            )
-            base.enregistrer_prix_enseigne(par_enseigne)
-        journal(f"  moyennes par enseigne : {len(par_enseigne)} lignes pour "
-                f"{annee_courante}")
-
         # Historique des stations du voisinage et des stations suivies, afin
         # que leurs courbes ne soient pas vides le jour où l'on veut les
         # comparer. Limité au voisinage : tout conserver pèserait quatre cents
@@ -105,6 +121,7 @@ def mettre_a_jour(journal=print):
                 l["station_id"] for l in cx.execute("SELECT station_id FROM favori")
             )
         communes = source_stations.chercher_commune(reglages.lire("commune_par_defaut"))
+        voisinage_connu = bool(communes)
         if communes:
             rayon = reglages.lire_entier("rayon_historique_km", 60)
             for carburant in ("Gazole", "SP95", "SP98", "E10"):
@@ -124,11 +141,11 @@ def mettre_a_jour(journal=print):
                        WHERE date <= date('now', '-30 day')
                        GROUP BY station_id""")
             }
-        interessantes -= deja_pourvues
+        a_extraire = interessantes - deja_pourvues
 
-        if interessantes:
+        if a_extraire:
             releves = historique.extraire_stations(
-                annee_courante, interessantes, journal=lambda m: None
+                annee_courante, a_extraire, journal=lambda m: None
             )
             with base.connexion() as cx:
                 cx.executemany(
@@ -138,7 +155,12 @@ def mettre_a_jour(journal=print):
                     releves,
                 )
             journal(f"  historique local : {len(releves)} relevés pour "
-                    f"{len(interessantes)} stations")
+                    f"{len(a_extraire)} stations")
+
+        if voisinage_connu:
+            _elaguer(interessantes, journal)
+        else:
+            journal("  élagage : différé, la commune de référence est introuvable")
     except Exception as erreur:
         incidents.append("moyennes nationales")
         journal(f"  moyennes nationales : échec ({erreur})")

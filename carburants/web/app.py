@@ -17,9 +17,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
-from carburants import base, config, reglages
+from carburants import base, config, reglages, variations
 from carburants.modele import entrainement
-from carburants.sources import enseignes, stations
+from carburants.sources import stations
 
 DOSSIER_WEB = config.RACINE / "carburants" / "web"
 
@@ -191,22 +191,57 @@ def api_stations(
     lat: float, lon: float,
     carburant: str = Query("Gazole"),
     rayon: int = Query(15, ge=1, le=100),
+    tri: str = Query("prix", pattern="^(prix|distance)$"),
 ):
-    """Stations proches, de la moins chère à la plus chère."""
-    resultats = stations.stations_autour(lat, lon, carburant, rayon_km=rayon)
+    """Stations proches, triées par prix ou par distance."""
+    resultats = stations.stations_autour(lat, lon, carburant, rayon_km=rayon, tri=tri)
     if not resultats:
         return {"resultats": [], "statistiques": None}
     prix = [r["prix"] for r in resultats]
     return {
         "resultats": resultats,
+        "tri": tri,
         "statistiques": {
             "moins_cher": min(prix),
             "plus_cher": max(prix),
+            "prix_median": _mediane(prix),
             "ecart_cts": round((max(prix) - min(prix)) * 100, 1),
             # Un plein de 50 litres : l'écart devient concret.
             "economie_plein_50l": round((max(prix) - min(prix)) * 50, 2),
             "nb": len(resultats),
+            # Médiane plutôt que moyenne : une seule station qui répercute
+            # brutalement ne doit pas emporter le chiffre du voisinage.
+            "var_24h_cts": _mediane([r["var_24h_cts"] for r in resultats
+                                     if r["var_24h_cts"] is not None]),
+            "var_7j_cts": _mediane([r["var_7j_cts"] for r in resultats
+                                    if r["var_7j_cts"] is not None]),
+            "nb_avec_historique": sum(1 for r in resultats if r["var_7j_cts"] is not None),
         },
+    }
+
+
+def _mediane(valeurs):
+    """Médiane d'une liste, ou None si elle est vide."""
+    if not valeurs:
+        return None
+    ordonnees = sorted(valeurs)
+    milieu = len(ordonnees) // 2
+    if len(ordonnees) % 2:
+        return round(ordonnees[milieu], 3)
+    return round((ordonnees[milieu - 1] + ordonnees[milieu]) / 2, 3)
+
+
+@application.get("/api/variations")
+def api_variations(carburant: str = Query("Gazole")):
+    """Ce que le baril et la pompe viennent de faire, pour situer la prévision.
+
+    Le voisinage n'y figure pas : il dépend de la commune cherchée et voyage
+    donc avec la liste des stations, qui le calcule déjà.
+    """
+    return {
+        "carburant": carburant,
+        "brut": variations.brut(),
+        "pompe": variations.pompe(carburant),
     }
 
 
@@ -266,18 +301,21 @@ def api_favoris(carburant: str = Query("Gazole")):
                ORDER BY f.ajoute_le""",
         ).fetchall()
 
+    # Mêmes variations que dans la liste des stations, calculées par le même
+    # code : une station suivie et la même station affichée trois lignes plus
+    # haut ne doivent pas annoncer deux chiffres différents.
+    bougees = stations.variations_recentes(
+        [f["station_id"] for f in favoris], carburant
+    )
+
     resultats = []
     for favori in favoris:
         historique = stations.historique_station(favori["station_id"], carburant)
         ligne = dict(favori)
         ligne["historique"] = historique
         ligne["prix_actuel"] = historique[-1]["prix"] if historique else None
-        # Variation sur les sept derniers relevés disponibles.
-        if len(historique) >= 2:
-            reference = historique[max(0, len(historique) - 8)]["prix"]
-            ligne["variation_cts"] = round((historique[-1]["prix"] - reference) * 100, 1)
-        else:
-            ligne["variation_cts"] = None
+        ligne.update(bougees.get(favori["station_id"],
+                                 {"var_24h_cts": None, "var_7j_cts": None}))
         resultats.append(ligne)
     return {"resultats": resultats}
 
@@ -379,31 +417,6 @@ def api_essai_messagerie(x_mot_de_passe: str = Header(None)):
 
     reussi, message = alertes.envoyer_essai()
     return {"ok": reussi, "message": message}
-
-
-@application.get("/api/enseignes")
-def api_enseignes(carburant: str = Query("Gazole")):
-    """Comparatif des enseignes : prix, marge et réactivité."""
-    if carburant not in config.CARBURANTS:
-        raise HTTPException(404, f"Carburant inconnu : {carburant}")
-    tableau = enseignes.comparatif(carburant)
-    return {
-        "carburant": carburant,
-        "enseignes": tableau,
-        "ecart_total_cts": round(
-            tableau[-1]["prix_median"] * 100 - tableau[0]["prix_median"] * 100, 1
-        ) if len(tableau) > 1 else 0,
-    }
-
-
-@application.get("/api/enseignes/historique")
-def api_enseignes_historique(
-    carburant: str = Query("Gazole"), jours: int = Query(365)
-):
-    """Séries quotidiennes par enseigne."""
-    if carburant not in config.CARBURANTS:
-        raise HTTPException(404, f"Carburant inconnu : {carburant}")
-    return {"carburant": carburant, "series": enseignes.historique(carburant, jours)}
 
 
 @application.get("/api/palmares")

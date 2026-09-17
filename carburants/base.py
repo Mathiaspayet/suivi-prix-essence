@@ -33,19 +33,6 @@ CREATE TABLE IF NOT EXISTS reglage (
     modifie_le TEXT NOT NULL
 );
 
--- Prix moyen quotidien par enseigne, hors autoroute. Contrairement au
--- découpage régional, abandonné parce que les régions ne sont que des copies
--- de la moyenne nationale, les enseignes mènent de vraies politiques de prix
--- distinctes : trente centimes séparent la moins chère de la plus chère.
-CREATE TABLE IF NOT EXISTS prix_enseigne (
-    date        TEXT    NOT NULL,
-    enseigne    TEXT    NOT NULL,
-    carburant   TEXT    NOT NULL,
-    prix_moyen  REAL    NOT NULL,
-    nb_stations INTEGER NOT NULL,
-    PRIMARY KEY (date, enseigne, carburant)
-);
-
 -- Indicateurs de marché : baril de Brent, taux de change euro/dollar.
 CREATE TABLE IF NOT EXISTS marche (
     date       TEXT NOT NULL,
@@ -201,6 +188,15 @@ def initialiser():
         ):
             cx.execute(index)
 
+        # Le comparatif national des enseignes a été retiré de la page : il
+        # classait des réseaux dont l'utilisateur n'a aucun exemplaire à
+        # portée, là où la liste des stations voisines répond vraiment à la
+        # question. Sa table de moyennes quotidiennes ne sert donc plus, et
+        # elle occupe une place qui grandit d'année en année. On la supprime
+        # sans état d'âme : c'est une agrégation recalculable à tout moment
+        # depuis les archives, non une donnée d'origine.
+        cx.execute("DROP TABLE IF EXISTS prix_enseigne")
+
 
 def enregistrer_prix_national(lignes):
     """Insère ou met à jour des moyennes nationales.
@@ -234,20 +230,6 @@ def enregistrer_marche(lignes):
             lignes,
         )
         return cx.total_changes
-
-
-def enregistrer_prix_enseigne(lignes):
-    """Insère ou met à jour des moyennes par enseigne."""
-    with connexion() as cx:
-        cx.executemany(
-            """INSERT INTO prix_enseigne
-                   (date, enseigne, carburant, prix_moyen, nb_stations)
-               VALUES (?, ?, ?, ?, ?)
-               ON CONFLICT(date, enseigne, carburant) DO UPDATE SET
-                   prix_moyen  = excluded.prix_moyen,
-                   nb_stations = excluded.nb_stations""",
-            lignes,
-        )
 
 
 def annees_deja_importees():

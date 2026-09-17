@@ -25,8 +25,13 @@
   --serie-2:        #eb6834;   /* matière première */
   --bien:           #0ca30c;
   --alerte:         #fab219;
-  --alerte-texte:   #8a5a00;   /* le jaune d'alerte est illisible en texte sur fond clair */
   --critique:       #d03b3b;
+  /* Déclinaisons réservées au texte : les teintes ci-dessus conviennent à une
+     pastille, pas à un nombre de douze pixels. Contrastes mesurés sur le fond
+     de chaque thème, minimum retenu 4,5. */
+  --bien-texte:     #0a7a0a;
+  --alerte-texte:   #8a5a00;
+  --critique-texte: #b82f2f;
   /* Bande entre les deux courbes du graphique de répercussion, teintée selon
      le sens du retard : le prix payé est-il au-dessus ou en dessous de ce que
      justifie le baril ? La teinte ne porte jamais l'information seule — la
@@ -43,7 +48,7 @@
     --grille:  #2c2c2a;  --axe:     #383835;
     --bordure: rgba(255,255,255,0.10);
     --serie-1: #3987e5;  --serie-2: #d95926;
-    --alerte-texte: #fab219;
+    --bien-texte: #4cc94c;  --alerte-texte: #fab219;  --critique-texte: #f07a7a;
     --bande-defavorable: rgba(208,59,59,0.28);
     --bande-favorable:   rgba(12,163,12,0.24);
   }
@@ -55,7 +60,7 @@
   --grille:  #2c2c2a;  --axe:     #383835;
   --bordure: rgba(255,255,255,0.10);
   --serie-1: #3987e5;  --serie-2: #d95926;
-  --alerte-texte: #fab219;
+  --bien-texte: #4cc94c;  --alerte-texte: #fab219;  --critique-texte: #f07a7a;
   --bande-defavorable: rgba(208,59,59,0.28);
   --bande-favorable:   rgba(12,163,12,0.24);
 }
@@ -107,6 +112,28 @@ h2 { font-size: 15px; margin: 0 0 12px; color: var(--encre-2); font-weight: 600;
 .jauge { height: 4px; background: var(--grille); border-radius: 2px; overflow: hidden; margin-top: 9px; }
 .jauge > span { display: block; height: 100%; border-radius: 2px; }
 
+/* --- Ce qui a bougé --- */
+.mouvements { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.mouvement { border: 1px solid var(--bordure); border-radius: 8px; padding: 12px 14px; }
+.mouvement .intitule { font-size: 12px; color: var(--encre-3); text-transform: uppercase;
+  letter-spacing: 0.04em; }
+.mouvement .niveau { font-size: 22px; font-weight: 650; letter-spacing: -0.02em; margin: 5px 0 1px; }
+.mouvement .niveau .unite { font-size: 13px; font-weight: 400; color: var(--encre-3); }
+.mouvement .precision { font-size: 12px; color: var(--encre-3); margin-bottom: 10px; }
+/* Deux lignes « période / variation », alignées à droite pour que les nombres
+   se comparent d'une tuile à l'autre sans effort. */
+.mouvement .evolution { display: flex; justify-content: space-between; gap: 10px;
+  font-size: 13px; border-top: 1px solid var(--grille); padding-top: 7px; }
+.mouvement .evolution .periode { color: var(--encre-2); }
+.mouvement .apropos { font-size: 11.5px; color: var(--encre-3); margin-top: 9px; }
+
+/* La flèche et le signe portent l'information ; la couleur ne fait que la
+   renforcer, pour qui la perçoit. Rouge = ce qui coûte plus cher. */
+.delta { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 600; }
+.delta.hausse { color: var(--critique-texte); }
+.delta.baisse { color: var(--bien-texte); }
+.delta.stable, .delta.neutre { color: var(--encre-3); font-weight: 400; }
+
 /* --- Graphique --- */
 .zone-graphe { position: relative; height: 340px; }
 @media (max-width: 640px) { .zone-graphe { height: 260px; } }
@@ -114,6 +141,14 @@ h2 { font-size: 15px; margin: 0 0 12px; color: var(--encre-2); font-weight: 600;
 .legende-graphe span.marque { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 6px; }
 .legende-graphe span.pave { display: inline-block; width: 14px; height: 10px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
 .plages { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+/* Affichage à gauche, tri à droite : deux réglages distincts qui ne doivent
+   pas se confondre en une seule rangée de boutons identiques. */
+.barre-outils { display: flex; flex-wrap: wrap; gap: 4px 20px; align-items: center;
+  justify-content: space-between; margin-bottom: 14px; }
+.barre-outils .plages { margin-bottom: 0; }
+.groupe-outil { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.groupe-outil .intitule-outil { font-size: 12px; color: var(--encre-3);
+  text-transform: uppercase; letter-spacing: 0.04em; }
 
 /* --- Tableaux --- */
 .defilement { overflow-x: auto; }
@@ -123,6 +158,32 @@ th { color: var(--encre-3); font-weight: 600; font-size: 12px; text-transform: u
 td.nombre, th.nombre { text-align: right; font-variant-numeric: tabular-nums; }
 tr.moins-cher td { font-weight: 650; }
 .etiquette { font-size: 11px; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--bordure); color: var(--encre-2); }
+/* Repli de la distance sous le nom de la station : ne sert qu'aux écrans
+   étroits, où sa colonne est masquée. */
+.repli { display: none; }
+/* Sur écran étroit, « Ne plus suivre » coûte plus large que tout le reste de
+   la ligne : l'étoile dit la même chose, et le bouton garde son intitulé
+   complet pour les lecteurs d'écran. */
+.etoile { display: none; }
+@media (max-width: 640px) {
+  table { font-size: 12.5px; }
+  th, td { padding: 6px 4px; }
+  th:last-child, td:last-child { padding-right: 0; }
+  /* Cellules autorisées à revenir à la ligne : « Saint-Julien-en-Born » et
+     « Enseigne et commune » tenus sur une seule ligne poussaient les
+     variations hors de l'écran, alors que ce sont elles qu'on vient lire. */
+  td.identite { white-space: normal; }
+  th { white-space: normal; }
+  /* La distance rejoint le nom de la station plutôt que d'occuper une colonne
+     à elle seule : quatre-vingts pixels gagnés sur trois cent soixante. */
+  th.distance, td.distance { display: none; }
+  .repli { display: block; color: var(--encre-3); font-size: 11.5px; }
+  /* L'en-tête de la case à cocher tenait plus de place que la case. */
+  th.coche > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  button.lien .mot { display: none; }
+  button.lien { text-decoration: none; }
+  button.lien .etoile { display: inline; font-size: 17px; }
+}
 
 /* --- Recherche --- */
 .recherche { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
@@ -191,6 +252,12 @@ button.lien { background: none; border: none; color: var(--serie-1); cursor: poi
 button.secondaire { font: inherit; padding: 8px 16px; border-radius: 8px;
   border: 1px solid var(--bordure); background: var(--surface); color: var(--encre); cursor: pointer; }
 .enseigne { font-weight: 600; color: var(--encre); }
+.lieu { color: var(--encre-2); }
+/* La case du graphique ouvre la ligne : c'est la colonne qu'on parcourt du
+   doigt pour cocher, elle n'a rien à faire au bout d'un tableau qui défile. */
+td.coche, th.coche { width: 1%; padding-right: 4px; }
+#tableau-stations .nombre, #tableau-favoris .nombre { width: 1%; }
+td.coche input { margin: 0; cursor: pointer; }
 .badge-autoroute { font-size: 10.5px; padding: 1px 6px; border-radius: 999px;
   border: 1px solid var(--bordure); color: var(--encre-3); margin-left: 6px; }
 /* Barre inscrite dans la cellule : elle donne l'ampleur d'un coup d'œil, là où
@@ -328,6 +395,13 @@ footer a { color: inherit; }
     <p class="encart" id="note-methode"></p>
   </section>
 
+  <!-- Ce qui vient de se passer -->
+  <section class="carte">
+    <h2>Ce qui a bougé récemment</h2>
+    <div class="mouvements" id="mouvements"></div>
+    <p class="encart" id="note-mouvements"></p>
+  </section>
+
   <!-- Graphique -->
   <section class="carte">
     <h2 id="titre-graphe">Évolution du prix</h2>
@@ -340,7 +414,7 @@ footer a { color: inherit; }
 
   <!-- Stations -->
   <section class="carte">
-    <h2>Stations les moins chères près de chez vous</h2>
+    <h2>Les stations autour de chez vous</h2>
     <div class="recherche">
       <input type="search" id="commune" placeholder="Ville ou code postal (ex. Bordeaux, 33000)" autocomplete="off">
       <select id="rayon" aria-label="Rayon de recherche">
@@ -354,7 +428,13 @@ footer a { color: inherit; }
     </div>
     <div class="propositions" id="propositions"></div>
     <p id="resume-stations" class="encart" hidden></p>
-    <div class="plages" id="affichage-stations"></div>
+    <div class="barre-outils">
+      <div class="plages" id="affichage-stations"></div>
+      <div class="groupe-outil" id="bloc-tri">
+        <span class="intitule-outil">Trier par</span>
+        <div class="plages" id="tri-stations"></div>
+      </div>
+    </div>
     <p class="bandeau-tendance" id="bandeau-tendance" hidden></p>
     <div id="bloc-carte" hidden>
       <div class="zone-carte"><div id="carte" style="height:100%"></div></div>
@@ -362,14 +442,6 @@ footer a { color: inherit; }
     </div>
     <div class="defilement" id="bloc-liste"><table id="tableau-stations"><tbody></tbody></table></div>
     <p class="vide" id="stations-vide">Indiquez une commune pour comparer les stations alentour.</p>
-  </section>
-
-  <!-- Enseignes -->
-  <section class="carte">
-    <h2>Quelle enseigne pratique les prix les plus bas ?</h2>
-    <p class="encart" id="resume-enseignes">Chargement…</p>
-    <div class="defilement"><table id="tableau-enseignes"><tbody></tbody></table></div>
-    <p class="encart" id="note-enseignes"></p>
   </section>
 
   <!-- Palmarès -->
@@ -419,6 +491,23 @@ function dateLongue(iso) {
   return `${+j} ${MOIS[+m - 1]} ${a}`;
 }
 const centimes = (v) => (v > 0 ? "+" : "") + v.toFixed(1).replace(".", ",") + " cts";
+const nombre = (v, decimales = 1) =>
+  (v > 0 ? "+" : "") + v.toFixed(decimales).replace(".", ",");
+
+/* Une variation de prix, rendue de la même façon partout : tuiles du haut,
+   liste des stations, stations suivies. La flèche et le signe portent
+   l'information, la couleur ne fait que la renforcer — sans quoi l'outil
+   serait muet pour qui distingue mal le rouge du vert.
+
+   Sous un demi-dixième de centime, on écrit « stable » plutôt qu'une flèche :
+   un prix qui n'a pas bougé ne doit pas ressembler à un prix qui monte. */
+function delta(valeur, unite = "") {
+  if (valeur == null) return `<span class="delta neutre">—</span>`;
+  if (Math.abs(valeur) < 0.05) return `<span class="delta stable">= stable</span>`;
+  const monte = valeur > 0;
+  return `<span class="delta ${monte ? "hausse" : "baisse"}">`
+    + `${monte ? "▲" : "▼"} ${nombre(valeur)}${unite}</span>`;
+}
 
 /* ---------- Configuration ---------- */
 const CHAMPS_TEXTE = ["smtp_hote","smtp_port","smtp_utilisateur","alerte_destinataire",
@@ -966,6 +1055,7 @@ async function chargerGraphique() {
 /* ---------- Stations ---------- */
 let communeChoisie = null;
 let affichageStations = localStorage.getItem("affichage") || "carte";
+let triStations = localStorage.getItem("tri") || "prix";
 let carte = null, couchePastilles = null;
 
 /* Teinte des pastilles : écart au prix médian du secteur, en centimes.
@@ -994,10 +1084,35 @@ function construireAffichage() {
       affichageStations = cle;
       localStorage.setItem("affichage", cle);
       construireAffichage();
+      construireTri();
       chargerStations();
     };
     zone.appendChild(bouton);
   });
+}
+
+/* Trier par prix répond à « où est-ce le moins cher », trier par distance à
+   « quelle est la moins chère sur mon chemin ». Trois centimes ne valent pas
+   vingt kilomètres de détour, et l'outil n'a pas à trancher à la place de
+   celui qui conduit. */
+function construireTri() {
+  const zone = document.getElementById("tri-stations");
+  zone.innerHTML = "";
+  [["prix", "Prix"], ["distance", "Distance"]].forEach(([cle, nom]) => {
+    const bouton = document.createElement("button");
+    bouton.className = "onglet";
+    bouton.textContent = nom;
+    bouton.setAttribute("aria-pressed", cle === triStations);
+    bouton.onclick = () => {
+      triStations = cle;
+      localStorage.setItem("tri", cle);
+      construireTri();
+      chargerStations();
+    };
+    zone.appendChild(bouton);
+  });
+  // La carte ne se trie pas : elle place les stations là où elles sont.
+  document.getElementById("bloc-tri").hidden = affichageStations === "carte";
 }
 
 function dessinerCarte(stations) {
@@ -1042,6 +1157,7 @@ function dessinerCarte(stations) {
       + (s.sur_autoroute ? " · autoroute" : "") + `<br>`
       + `<span style="color:#898781">à ${s.distance_km.toFixed(1).replace(".", ",")} km`
       + `${ecart ? ` · ${ecart > 0 ? "+" : ""}${ecart.toFixed(1).replace(".", ",")} cts / médiane` : ""}</span>`
+      + `<br>24 h ${delta(s.var_24h_cts)} &nbsp;·&nbsp; 7 jours ${delta(s.var_7j_cts)}`
       + (autres ? `<br><span style="color:#898781">${autres}</span>` : "")
       + `<br><button class="lien" onclick="basculerFavori('${s.id}', ${s.favori ? 1 : 0})">`
       + `${s.favori ? "Ne plus suivre" : "Suivre cette station"}</button>`
@@ -1075,10 +1191,8 @@ async function afficherTendance() {
   const fleche = court.sens === "hausse" ? "▲" : "▼";
   bandeau.innerHTML = court.conseil === "peu_fiable"
     ? `Tendance à 7 jours : non communiquée, le modèle n'est pas assez fiable en ce moment.`
-    : `<b>${fleche} ${court.resume}</b> — tendance nationale à 7 jours, `
-      + `${court.probabilite_hausse.toFixed(0)} % de probabilité de hausse. `
-      + `Elle vaut pour toutes ces stations : les prix bougent partout le même jour, `
-      + `seuls leurs niveaux diffèrent.`;
+    : `<b>${fleche} ${court.resume}</b> — la tendance à 7 jours est nationale : `
+      + `elle vaut pour toutes ces stations, seuls leurs niveaux diffèrent.`;
 }
 
 async function proposerCommunes() {
@@ -1107,8 +1221,10 @@ async function chargerStations() {
   if (!communeChoisie) return;
   const rayon = document.getElementById("rayon").value;
   const reponse = await fetch(`/api/stations?lat=${communeChoisie.lat}&lon=${communeChoisie.lon}`
-    + `&carburant=${encodeURIComponent(carburantActif)}&rayon=${rayon}`);
+    + `&carburant=${encodeURIComponent(carburantActif)}&rayon=${rayon}&tri=${triStations}`);
   const donnees = await reponse.json();
+  statistiquesVoisinage = donnees.statistiques;
+  chargerMouvements();
   const corps = document.querySelector("#tableau-stations tbody");
   const vide = document.getElementById("stations-vide");
   const resume = document.getElementById("resume-stations");
@@ -1131,25 +1247,38 @@ async function chargerStations() {
   const s = donnees.statistiques;
   resume.textContent = `${s.nb} stations trouvées. Entre la moins chère et la plus chère : `
     + `${s.ecart_cts.toFixed(1).replace(".", ",")} centimes par litre, `
-    + `soit ${s.economie_plein_50l.toFixed(2).replace(".", ",")} € sur un plein de 50 litres.`;
+    + `soit ${s.economie_plein_50l.toFixed(2).replace(".", ",")} € sur un plein de 50 litres. `
+    + `Les variations sont en centimes par litre.`;
 
-  corps.innerHTML = `<tr><th class="nombre">Prix</th><th>Enseigne</th><th>Adresse</th><th>Commune</th>
-                     <th class="nombre">Distance</th><th></th>
-                     <th class="nombre" title="Afficher sa courbe sur le graphique">Courbe</th></tr>`;
-  donnees.resultats.forEach((station, rang) => {
+  // La moins chère n'est en tête que si c'est le prix qui trie : mise en
+  // valeur au sommet d'une liste triée par distance, elle ferait croire que
+  // la station la plus proche est aussi la moins chère.
+  const meilleure = Math.min(...donnees.resultats.map((r) => r.prix));
+  corps.innerHTML = `<tr>
+      <th class="coche" title="Afficher sa courbe sur le graphique"><span>Courbe</span></th>
+      <th class="nombre">Prix</th><th>Enseigne et commune</th>
+      <th class="nombre distance">Distance</th>
+      <th class="nombre">24 h</th><th class="nombre">7 jours</th><th></th></tr>`;
+  donnees.resultats.forEach((station) => {
     const ligne = document.createElement("tr");
-    if (rang === 0) ligne.className = "moins-cher";
+    if (station.prix === meilleure) ligne.className = "moins-cher";
     ligne.innerHTML = `
-      <td class="nombre">${euros(station.prix)}</td>
-      <td><span class="enseigne">${station.enseigne || "—"}</span>${
-        station.sur_autoroute ? '<span class="badge-autoroute">autoroute</span>' : ""}</td>
-      <td>${station.adresse || "—"}</td>
-      <td>${station.ville} <span class="etiquette">${station.code_postal}</span></td>
-      <td class="nombre">${station.distance_km.toFixed(1).replace(".", ",")} km</td>
-      <td><button class="lien">${station.favori ? "Ne plus suivre" : "Suivre"}</button></td>
-      <td class="nombre"><input type="checkbox" class="coche-courbe" data-id="${station.id}"
+      <td class="coche"><input type="checkbox" class="coche-courbe" data-id="${station.id}"
           ${stationsTracees.includes(station.id) ? "checked" : ""}
-          aria-label="Afficher la courbe de cette station"></td>`;
+          aria-label="Afficher la courbe de ${station.enseigne || "cette station"} à ${station.ville}"></td>
+      <td class="nombre">${euros(station.prix)}</td>
+      <td class="identite"><span class="enseigne">${station.enseigne || "Station"}</span>
+          <span class="lieu">${station.ville}</span>${
+        station.sur_autoroute ? '<span class="badge-autoroute">autoroute</span>' : ""}
+          <span class="repli">à ${station.distance_km.toFixed(1).replace(".", ",")} km</span></td>
+      <td class="nombre distance">${station.distance_km.toFixed(1).replace(".", ",")} km</td>
+      <td class="nombre">${delta(station.var_24h_cts)}</td>
+      <td class="nombre">${delta(station.var_7j_cts)}</td>
+      <td><button class="lien" aria-label="${station.favori ? "Ne plus suivre" : "Suivre"} `
+        + `${station.enseigne || "cette station"} à ${station.ville}">`
+        + `<span class="mot">${station.favori ? "Ne plus suivre" : "Suivre"}</span>`
+        + `<span class="etoile" aria-hidden="true">${station.favori ? "★" : "☆"}</span>`
+        + `</button></td>`;
     ligne.querySelector("button").onclick = async () => {
       await fetch(`/api/favoris/${station.id}`, { method: station.favori ? "DELETE" : "POST" });
       chargerStations(); chargerFavoris();
@@ -1168,18 +1297,17 @@ async function chargerFavoris() {
   corps.innerHTML = "";
   if (!donnees.resultats.length) { vide.hidden = false; return; }
   vide.hidden = true;
-  corps.innerHTML = `<tr><th class="nombre">Prix</th><th>Enseigne</th><th>Adresse</th><th>Commune</th>
-                     <th class="nombre">7 jours</th><th></th></tr>`;
+  corps.innerHTML = `<tr><th class="nombre">Prix</th><th>Enseigne et commune</th>
+                     <th class="nombre">24 h</th><th class="nombre">7 jours</th>
+                     <th></th></tr>`;
   donnees.resultats.forEach((f) => {
     const ligne = document.createElement("tr");
-    const variation = f.variation_cts;
-    const couleur = variation == null ? "--encre-3" : (variation > 0 ? "--critique" : (variation < 0 ? "--bien" : "--encre-3"));
     ligne.innerHTML = `
       <td class="nombre">${euros(f.prix_actuel)}</td>
-      <td><span class="enseigne">${f.enseigne || "—"}</span></td>
-      <td>${f.adresse || "—"}</td>
-      <td>${f.ville} <span class="etiquette">${f.code_postal}</span></td>
-      <td class="nombre" style="color:${encre(couleur)}">${variation == null ? "—" : centimes(variation)}</td>
+      <td class="identite"><span class="enseigne">${f.enseigne || "Station"}</span>
+          <span class="lieu">${f.ville}</span></td>
+      <td class="nombre">${delta(f.var_24h_cts)}</td>
+      <td class="nombre">${delta(f.var_7j_cts)}</td>
       <td><button class="lien">Retirer</button></td>`;
     ligne.querySelector("button").onclick = async () => {
       await fetch(`/api/favoris/${f.station_id}`, { method: "DELETE" });
@@ -1189,63 +1317,103 @@ async function chargerFavoris() {
   });
 }
 
-/* ---------- Enseignes ---------- */
-async function chargerEnseignes() {
-  const d = await (await fetch(`/api/enseignes?carburant=${encodeURIComponent(carburantActif)}`)).json();
-  const resume = document.getElementById("resume-enseignes");
-  const corps = document.querySelector("#tableau-enseignes tbody");
-  const note = document.getElementById("note-enseignes");
-  corps.innerHTML = "";
+/* ---------- Ce qui a bougé ---------- */
+/* Statistiques du dernier voisinage chargé. La troisième tuile en dépend, mais
+   la liste des stations les calcule déjà : les redemander au serveur ferait
+   deux fois le même travail pour deux chiffres. */
+let statistiquesVoisinage = null;
 
-  if (!d.enseignes.length) {
-    resume.textContent = "Les enseignes ne sont pas encore renseignées. "
-      + "Elles le seront à la prochaine collecte.";
-    note.textContent = "";
-    return;
+function tuileMouvement({ intitule, niveau, unite, precision, lignes, apropos }) {
+  return `<div class="mouvement">
+    <div class="intitule">${intitule}</div>
+    <div class="niveau">${niveau}${unite ? ` <span class="unite">${unite}</span>` : ""}</div>
+    <div class="precision">${precision || "&nbsp;"}</div>
+    ${lignes.map(([periode, valeur]) =>
+      `<div class="evolution"><span class="periode">${periode}</span>${valeur}</div>`).join("")}
+    ${apropos ? `<div class="apropos">${apropos}</div>` : ""}
+  </div>`;
+}
+
+async function chargerMouvements() {
+  const d = await (await fetch(
+    `/api/variations?carburant=${encodeURIComponent(carburantActif)}`)).json();
+  const zone = document.getElementById("mouvements");
+  const tuiles = [];
+
+  if (d.brut) {
+    const b = d.brut;
+    tuiles.push(tuileMouvement({
+      intitule: "Pétrole brut",
+      niveau: b.valeur.toFixed(2).replace(".", ","), unite: "$ / baril",
+      precision: "cours du Brent",
+      // « 24 heures » serait faux : les marchés ne cotent ni le week-end ni
+      // les jours fériés, et la donnée publique accuse quelques jours de
+      // retard. On nomme donc ce qu'on compare vraiment.
+      lignes: [["Dernière séance", delta(b.court_pct, " %")],
+               ["7 jours", delta(b.semaine_pct, " %")]],
+      apropos: `coté le ${dateLongue(b.date)}`
+        + (b.retard_jours > 1 ? ` · ${b.retard_jours} jours de retard` : ""),
+    }));
   }
-  const premier = d.enseignes[0], dernier = d.enseignes[d.enseignes.length - 1];
-  resume.textContent =
-    `${premier.enseigne} affiche le ${carburantActif.toLowerCase()} le moins cher `
-    + `(${euros(premier.prix_median)}), ${dernier.enseigne} le plus cher `
-    + `(${euros(dernier.prix_median)}). Soit ${d.ecart_total_cts.toFixed(1).replace(".", ",")} `
-    + `centimes par litre d'écart, ou ${dernier.surcout_plein_50l.toFixed(2).replace(".", ",")} € `
-    + `sur un plein de 50 litres. Stations d'autoroute exclues.`;
+  if (d.pompe) {
+    const p = d.pompe;
+    tuiles.push(tuileMouvement({
+      intitule: `${carburantActif} à la pompe`,
+      niveau: p.valeur.toFixed(3).replace(".", ","), unite: "€ / L",
+      precision: "moyenne France",
+      lignes: [["24 heures", delta(p.court_cts, " cts")],
+               ["7 jours", delta(p.semaine_cts, " cts")]],
+      apropos: `relevé le ${dateLongue(p.date)}`,
+    }));
+  }
+  const v = statistiquesVoisinage;
+  tuiles.push(tuileMouvement({
+    intitule: communeChoisie ? `Autour de ${communeChoisie.ville}` : "Autour de chez vous",
+    niveau: v && v.prix_median != null ? v.prix_median.toFixed(3).replace(".", ",") : "—",
+    unite: v && v.prix_median != null ? "€ / L" : "",
+    precision: v ? `prix médian de ${v.nb} stations` : "choisissez une commune plus bas",
+    lignes: [["24 heures", delta(v ? v.var_24h_cts : null, " cts")],
+             ["7 jours", delta(v ? v.var_7j_cts : null, " cts")]],
+    apropos: v && v.nb_avec_historique < v.nb
+      ? `${v.nb - v.nb_avec_historique} station(s) sans historique, écartées du calcul` : "",
+  }));
 
-  const maxi = dernier.surcout_cts || 1;
-  corps.innerHTML = `<tr><th></th><th>Enseigne</th><th class="nombre">Prix médian</th>
-    <th class="nombre">Surcoût</th><th class="nombre">par plein</th>
-    <th class="nombre">Réactivité</th><th class="nombre">Stations</th></tr>`;
-  d.enseignes.forEach((e) => {
-    const ligne = document.createElement("tr");
-    if (e.rang === 1) ligne.className = "moins-cher";
-    const largeur = Math.max(2, (e.surcout_cts / maxi) * 100);
-    const couleur = e.surcout_cts < 3 ? "--bien" : (e.surcout_cts < 15 ? "--alerte" : "--critique");
-    ligne.innerHTML = `
-      <td class="nombre" style="color:var(--encre-3)">${e.rang}</td>
-      <td><span class="enseigne">${e.enseigne}</span></td>
-      <td class="nombre">${euros(e.prix_median)}</td>
-      <td class="nombre barre-ecart" style="min-width:110px">
-        <span style="width:${largeur}%;background:${encre(couleur)}"></span>
-        <em>${e.surcout_cts > 0 ? "+" : ""}${e.surcout_cts.toFixed(1).replace(".", ",")} cts</em></td>
-      <td class="nombre">${e.surcout_plein_50l > 0
-        ? "+" + e.surcout_plein_50l.toFixed(2).replace(".", ",") + " €" : "—"}</td>
-      <td class="nombre" style="color:var(--encre-3)">${e.agitation_cts.toFixed(2).replace(".", ",")}</td>
-      <td class="nombre" style="color:var(--encre-3)">${e.nb_stations}</td>`;
-    corps.appendChild(ligne);
-  });
+  zone.innerHTML = tuiles.join("");
+  document.getElementById("note-mouvements").innerHTML = lectureMouvements(d);
+}
 
-  note.innerHTML =
-    `<b>Ce que mesure le surcoût.</b> Les taxes sont identiques pour toutes les `
-    + `enseignes, et le carburant de gros s'achète à peu près au même prix : l'écart `
-    + `entre deux réseaux est donc un écart de marge. Sur les `
-    + `${dernier.surcout_cts.toFixed(1).replace(".", ",")} centimes qui séparent `
-    + `${premier.enseigne} de ${dernier.enseigne}, `
-    + `${dernier.marge_supplementaire_cts.toFixed(1).replace(".", ",")} reviennent `
-    + `réellement au distributeur — le reste part en TVA, qui frappe aussi la marge.`
-    + `<br><br><b>La réactivité</b> est la variation moyenne d'un jour sur l'autre, en `
-    + `centimes. Elle ne dit pas qui baisse en premier : mesuré sur trente épisodes `
-    + `de baisse depuis 2019, aucune enseigne ne devance les autres. Une enseigne `
-    + `réactive ajuste simplement plus souvent, à la hausse comme à la baisse.`;
+/* La comparaison entre les trois étages est tout l'intérêt du bloc : c'est là
+   qu'on voit la répercussion arriver, ou finir d'arriver. La phrase reste
+   descriptive — elle rapporte deux nombres et ce qu'ils impliquent
+   mécaniquement, sans prétendre prévoir. */
+function lectureMouvements(d) {
+  if (!d.brut || !d.pompe || d.brut.semaine_pct == null || d.pompe.semaine_pct == null) {
+    return "";
+  }
+  const baril = d.brut.semaine_pct, pompe = d.pompe.semaine_pct;
+  const dire = (v) => Math.abs(v).toFixed(1).replace(".", ",") + " %";
+  const retard = " Le rattrapage prend en général une à trois semaines, "
+    + "et la hausse se répercute plus vite que la baisse.";
+
+  if (baril > 1 && pompe < baril - 3) {
+    return `<b>Sur sept jours, le baril a pris ${dire(baril)} et la pompe `
+      + `${dire(pompe)}.</b> Une part de la hausse n'est donc pas encore arrivée `
+      + `dans les stations.` + retard;
+  }
+  if (baril < -1 && pompe > baril + 3) {
+    return `<b>Sur sept jours, le baril a cédé ${dire(baril)} et la pompe `
+      + `seulement ${dire(pompe)}.</b> Une part de la baisse reste à venir — `
+      + `c'est le moment d'attendre plutôt que de faire le plein.` + retard;
+  }
+  if (baril * pompe < 0) {
+    return `<b>Le baril et la pompe vont en sens contraire cette semaine</b> `
+      + `(${nombre(baril)} % contre ${nombre(pompe)} %). Les stations achèvent `
+      + `de répercuter le mouvement précédent : c'est l'inertie habituelle, pas `
+      + `une anomalie.`;
+  }
+  return `Sur sept jours, le baril a varié de ${nombre(baril)} % et la pompe de `
+    + `${nombre(pompe)} %. <b>La pompe suit le marché de près en ce moment</b>, `
+    + `il n'y a pas de rattrapage en attente.`;
 }
 
 /* ---------- Palmarès ---------- */
@@ -1274,7 +1442,8 @@ async function chargerPalmares() {
   d.detail.forEach((l) => {
     const ligne = document.createElement("tr");
     // Sous 60 %, l'outil ne se prononce plus : la ligne le dit aussi.
-    const couleur = l.taux >= 70 ? "--bien" : (l.taux >= 60 ? "--alerte" : "--critique");
+    const couleur = l.taux >= 70 ? "--bien-texte"
+      : (l.taux >= 60 ? "--alerte-texte" : "--critique-texte");
     ligne.innerHTML = `
       <td>${l.horizon} jours</td>
       <td class="nombre">${l.nb}</td>
@@ -1318,7 +1487,10 @@ async function chargerEtat() {
 /* ---------- Démarrage ---------- */
 function toutRafraichir() {
   chargerPrevisions(); chargerGraphique(); chargerStations();
-  chargerFavoris(); chargerPalmares(); chargerEnseignes();
+  chargerFavoris(); chargerPalmares();
+  // chargerStations() redessine déjà les tuiles avec le voisinage à jour ;
+  // sans commune, personne ne le ferait.
+  if (!communeChoisie) chargerMouvements();
 }
 let minuterie;
 document.getElementById("commune").addEventListener("input", () => {
@@ -1345,13 +1517,15 @@ async function appliquerReglages() {
   if (communeChoisie) {
     document.getElementById("commune").value = communeChoisie.ville;
     chargerStations();
+  } else {
+    chargerMouvements();
   }
 }
 
 construireOnglets(); construireVues(); construirePlages();
-construireAffichage(); chargerEtat();
+construireAffichage(); construireTri(); chargerEtat();
 chargerPrevisions(); chargerGraphique(); chargerFavoris();
-chargerPalmares(); chargerEnseignes();
+chargerPalmares();
 appliquerReglages();
 </script>
 </body>
